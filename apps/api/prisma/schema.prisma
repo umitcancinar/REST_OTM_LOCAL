@@ -36,6 +36,7 @@ model Tenant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  licenses       License[]
   users          User[]
   menuCategories MenuCategory[]
   menuItems      MenuItem[]
@@ -89,6 +90,69 @@ model User {
   @@unique([tenantId, pin])
   @@index([tenantId])
   @@map("users")
+}
+
+// ─── LISANS ────────────────────────────────────────
+// Musterinin kendi bilgisayarinda calisan kurulumun kimligi.
+// Bulut tarafi lisansi URETIR ve DENETLER; lokal taraf yalnizca
+// dogrular (bkz. packages/license).
+
+enum LicenseStatus {
+  /** Uretildi, henuz bir bilgisayara baglanmadi. */
+  PENDING
+  /** Bir makineye baglandi ve calisiyor. */
+  ACTIVE
+  /** Superadmin tarafindan durduruldu (odeme yok vb.). */
+  SUSPENDED
+  /** Kalici olarak iptal edildi. */
+  REVOKED
+}
+
+model License {
+  id       String        @id @default(cuid())
+  tenantId String
+  /** Musteriye verilen anahtar: RSTO-XXXX-XXXX-XXXX */
+  key      String        @unique
+  status   LicenseStatus @default(PENDING)
+
+  /** Baglandigi makinenin parmak izi. Null ise henuz aktive edilmemis.
+   *  Ikinci bir makinede ayni anahtarla aktivasyon denendiginde burasi
+   *  dolu oldugu icin reddedilir. */
+  hardwareId     String?
+  /** Destek ekraninda musterinin okuyabilecegi kisa kod. */
+  hardwareIdShort String?
+  activatedAt    DateTime?
+
+  /** Uyelik bitisi. Lisans her yenilendiginde bu tarih imzalanir. */
+  expiresAt DateTime
+
+  /** Internet kesintisinde kac gun calisabilecegi. */
+  graceDays Int @default(7)
+
+  /** Acik ozellikler: einvoice, pos, inventory ... */
+  features String[] @default([])
+
+  /** Son yoklama bilgileri — superadmin panelinde "canli mi" gostergesi.
+   *  Uzun suredir yoklama gelmiyorsa ya kapali ya da engellenmis demektir. */
+  lastHeartbeatAt DateTime?
+  lastHeartbeatIp String?
+  appVersion      String?
+
+  /** Kurcalama supheleri burada birikir (imza hatasi, saat oynatma,
+   *  farkli donanimdan gelen yoklama). Superadmin gorup arayabilsin. */
+  suspiciousCount Int       @default(0)
+  lastSuspiciousAt DateTime?
+  notes           String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([lastHeartbeatAt])
+  @@map("licenses")
 }
 
 // ─── REFRESH TOKEN / OTURUM ────────────────────────

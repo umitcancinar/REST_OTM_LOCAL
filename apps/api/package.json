@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@prisma/client": "^6.3.0",
+    "@rest-otm/license": "workspace:*",
     "@rest-otm/receipt-core": "workspace:*",
     "@rest-otm/shared-types": "workspace:*",
     "bcryptjs": "^2.4.3",

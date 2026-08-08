@@ -124,6 +124,19 @@ export const env = {
   // (bkz. websocket/socket.server.ts ve Tenant.printAgentSecret).
   PRINT_AGENT_SECRET: requireSecret('PRINT_AGENT_SECRET', 'dev-print-agent-secret-CHANGE-ME'),
 
+  // ─── Lisans sunucusu ───────────────────────────────────────────
+  // Ed25519 OZEL anahtari (PEM). Lisanslari bununla imzaliyoruz.
+  //
+  // Bu deger sizarsa lisans sistemi tamamen degersizlesir: sizan
+  // anahtarla herkes kendine sinirsiz sureli lisans uretebilir. Bu yuzden
+  // yalnizca bulut API'sinin ortam degiskeninde bulunur — repoda, musteri
+  // paketinde veya loglarda ASLA yer almaz.
+  //
+  // Bilerek fail-fast DEGIL: ayni API menu/CMS de servis ediyor ve lisans
+  // yapilandirilmamis bir ortamda (ornegin gelistirme) calisabilmeli.
+  // Eksikse lisans uc noktalari 503 doner (bkz. license.service.ts).
+  LICENSE_PRIVATE_KEY: process.env.LICENSE_PRIVATE_KEY || '',
+
   // Super Admin
   SUPER_ADMIN_EMAIL: process.env.SUPER_ADMIN_EMAIL || 'admin@restotm.com',
   SUPER_ADMIN_PASSWORD: requireSecret('SUPER_ADMIN_PASSWORD', 'dev-super-admin-CHANGE-ME'),
