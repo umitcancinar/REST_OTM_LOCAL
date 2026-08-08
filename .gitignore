@@ -70,3 +70,11 @@ apps/api/src/config/firebase-service-account.json
 
 # Gecici / silinecek dosyalar
 _to_delete/
+
+# Lisans paketi derleme ciktisi
+packages/license/dist/
+
+# Lisans OZEL anahtari — ASLA commit edilmez.
+# Sizarsa herkes kendine sinirsiz lisans uretebilir.
+*.license-key.pem
+license-private.pem
