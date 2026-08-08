@@ -5,6 +5,10 @@
 import prisma from '../../config/database';
 import { logger } from '../../utils/logger';
 import { resolvePreparationDepartment } from '../../utils/department-routing';
+import {
+  enqueueMenuProjection,
+  kickMenuProjectionOutbox,
+} from '../menu-projection/menu-projection.service';
 
 export const menuService = {
   // ─── Categories ─────────────────────────
@@ -25,9 +29,12 @@ export const menuService = {
   },
 
   async createCategory(tenantId: string, data: { name: string; description?: string; sortOrder?: number }) {
-    const category = await prisma.menuCategory.create({
-      data: { tenantId, ...data },
+    const category = await prisma.$transaction(async (tx) => {
+      const created = await tx.menuCategory.create({ data: { tenantId, ...data } });
+      await enqueueMenuProjection(tx, tenantId);
+      return created;
     });
+    kickMenuProjectionOutbox();
     logger.info(`Category created: ${category.name} (tenant: ${tenantId})`);
     return category;
   },
@@ -35,26 +42,35 @@ export const menuService = {
   async updateCategory(tenantId: string, id: string, data: Partial<{ name: string; description: string; sortOrder: number; isActive: boolean }>) {
     const category = await prisma.menuCategory.findFirst({ where: { id, tenantId }, select: { id: true } });
     if (!category) throw Object.assign(new Error('Category not found'), { statusCode: 404 });
-    return prisma.menuCategory.update({
-      where: { id: category.id },
-      data,
+    const updated = await prisma.$transaction(async (tx) => {
+      const result = await tx.menuCategory.update({ where: { id: category.id }, data });
+      await enqueueMenuProjection(tx, tenantId);
+      return result;
     });
+    kickMenuProjectionOutbox();
+    return updated;
   },
 
   async deleteCategory(tenantId: string, id: string) {
     const category = await prisma.menuCategory.findFirst({ where: { id, tenantId }, select: { id: true } });
     if (!category) throw Object.assign(new Error('Category not found'), { statusCode: 404 });
-    return prisma.menuCategory.delete({ where: { id: category.id } });
+    const deleted = await prisma.$transaction(async (tx) => {
+      const result = await tx.menuCategory.delete({ where: { id: category.id } });
+      await enqueueMenuProjection(tx, tenantId);
+      return result;
+    });
+    kickMenuProjectionOutbox();
+    return deleted;
   },
 
   async reorderCategories(tenantId: string, orderedIds: string[]) {
-    const transaction = orderedIds.map((id, index) =>
-      prisma.menuCategory.updateMany({
-        where: { id, tenantId },
-        data: { sortOrder: index },
-      })
-    );
-    await prisma.$transaction(transaction);
+    await prisma.$transaction(async (tx) => {
+      for (const [index, id] of orderedIds.entries()) {
+        await tx.menuCategory.updateMany({ where: { id, tenantId }, data: { sortOrder: index } });
+      }
+      await enqueueMenuProjection(tx, tenantId);
+    });
+    kickMenuProjectionOutbox();
     return { success: true };
   },
 
@@ -103,31 +119,33 @@ export const menuService = {
   }) {
     let department = data.department;
     if (!department) {
-      const category = await prisma.menuCategory.findFirst({
-        where: { id: data.categoryId, tenantId },
-        select: { name: true },
-      });
+      const category = await prisma.menuCategory.findFirst({ where: { id: data.categoryId, tenantId }, select: { name: true } });
       department = resolvePreparationDepartment('KITCHEN', category?.name);
     }
 
-    const item = await prisma.menuItem.create({
-      data: {
-        tenantId,
-        categoryId: data.categoryId,
-        name: data.name,
-        description: data.description,
-        basePrice: data.basePrice,
-        portionOptions: data.portionOptions as any ?? [],
-        extras: data.extras as any ?? [],
-        department: department as any,
-        preparationTime: data.preparationTime,
-        calories: data.calories,
-        allergens: data.allergens as any ?? [],
-        extraInfo: data.extraInfo,
-        badge: data.badge,
-        image: data.image,
-      },
+    const item = await prisma.$transaction(async (tx) => {
+      const created = await tx.menuItem.create({
+        data: {
+          tenantId,
+          categoryId: data.categoryId,
+          name: data.name,
+          description: data.description,
+          basePrice: data.basePrice,
+          portionOptions: data.portionOptions as any ?? [],
+          extras: data.extras as any ?? [],
+          department: department as any,
+          preparationTime: data.preparationTime,
+          calories: data.calories,
+          allergens: data.allergens as any ?? [],
+          extraInfo: data.extraInfo,
+          badge: data.badge,
+          image: data.image,
+        },
+      });
+      await enqueueMenuProjection(tx, tenantId);
+      return created;
     });
+    kickMenuProjectionOutbox();
     logger.info(`Menu item created: ${item.name} (${item.basePrice} TL)`);
     return item;
   },
@@ -135,12 +153,24 @@ export const menuService = {
   async updateItem(tenantId: string, id: string, data: Record<string, unknown>) {
     const item = await prisma.menuItem.findFirst({ where: { id, tenantId }, select: { id: true } });
     if (!item) throw Object.assign(new Error('Menu item not found'), { statusCode: 404 });
-    return prisma.menuItem.update({ where: { id: item.id }, data: data as any });
+    const updated = await prisma.$transaction(async (tx) => {
+      const result = await tx.menuItem.update({ where: { id: item.id }, data: data as any });
+      await enqueueMenuProjection(tx, tenantId);
+      return result;
+    });
+    kickMenuProjectionOutbox();
+    return updated;
   },
 
   async deleteItem(tenantId: string, id: string) {
     const item = await prisma.menuItem.findFirst({ where: { id, tenantId }, select: { id: true } });
     if (!item) throw Object.assign(new Error('Menu item not found'), { statusCode: 404 });
-    return prisma.menuItem.delete({ where: { id: item.id } });
+    const deleted = await prisma.$transaction(async (tx) => {
+      const result = await tx.menuItem.delete({ where: { id: item.id } });
+      await enqueueMenuProjection(tx, tenantId);
+      return result;
+    });
+    kickMenuProjectionOutbox();
+    return deleted;
   },
 };

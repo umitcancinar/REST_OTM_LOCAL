@@ -38,7 +38,7 @@ PowerShell betikleri ayni politikayi kurulum oncesi kontrol, operasyonel repair 
 
 - Kaynakta sabit DB parolasi, JWT/session secret'i, print secret'i veya lisans private key'i yoktur.
 - Ilk provisioning'de CSPRNG ile uretilen secret'lar `secrets.json` icinde `DPAPI LocalMachine` ile sifrelenir; klasor ACL'i yalniz SYSTEM ve Administrators'a aciktir.
-- Idempotent tekrar kurulum secret'lari degistirmez. Bilincli rotasyon ayrica `-RotateSecrets` ister.
+- Idempotent tekrar kurulum secret'lari degistirmez. `-RotateSecrets`, DB rolu ve calisan child surecleriyle atomik rotasyon backend'i tamamlanana kadar fail-closed reddedilir.
 - Render'daki lisans imzalama private key'i musteri artifact'ine **asla** girmez. Yerelde yalniz public key ve imzali lease bulunur.
 - DPAPI tek basina yonetici seviyesinde saldirgana karsi mutlak koruma degildir. Nihai hardening'de cihaz anahtari TPM/CNG ile uretilmeli, DPAPI fallback olarak kalmalidir.
 
@@ -59,6 +59,14 @@ Uninstall yalniz uygulama binary'sini ve Windows servisini kaldirir. `ProgramDat
 
 Release pipeline, staging kokune gercek `artifact-manifest.json` ve `installer-contract.json` koyar. `.example.json` dosyalari yalniz sema gostergesidir ve gecerli hash icermedigi icin build'de kabul edilmez.
 
+Canonical payload `scripts/release/assemble-windows-payload.mjs` ile yeni ve bos
+bir dizine fail-closed assemble edilir. Stager audited local API closure, iki
+Next standalone, gateway/print runtime ve receipt/license closure'larini alir;
+native/PostgreSQL/launcher/public-key girdileri, tum PE Authenticode imzalari
+ve production-ready bootstrap contract'i tamamlanmadan production manifesti
+uretmez. `--fixture` ciktisi manifestte acikca isaretlidir ve installer girdisi
+degildir.
+
 Manifest her dosyanin relative path, SHA-256, rol ve PE dosyalari icin Authenticode gereksinimini tasir. Su roller zorunludur:
 
 - `runtime-service`, `installer-bootstrap`;
@@ -66,7 +74,7 @@ Manifest her dosyanin relative path, SHA-256, rol ve PE dosyalari icin Authentic
 - `local-api`, `admin-ui`, `waiter-ui`, `print-agent`, `lan-gateway`;
 - `license-public-key` (yalniz Ed25519 public key; private key kesinlikle degil).
 
-`installer-contract.json`, runtime yardimcisinin first-run provisioning ve veri-koruyan uninstall davranisini acikca taahhut eder. Build ayrica `.pdb`, source-map, TypeScript kaynaklari ve `.env*` dosyalarini reddeder.
+`installer-contract.json`, Rust host ile ayni `restotm-windows-host-v1` snake_case semasini; exact child sirasi/dependency'leri, sabit portlari, `values` map'li DPAPI secret store'u ve hash/ACL policy bagli bootstrap receipt'i taahhut eder. Build, contract icinde `native_bootstrap.production_ready=true` ister ve helper'i `verify-production-contract --contract ...` capability probe'u ile calistirir. Mevcut foundation helper bu capability'yi sunmadigi ve provisioning icin exit 78 dondugu icin installer bilerek uretilemez. Build ayrica `.pdb`, source-map, TypeScript kaynaklari ve `.env*` dosyalarini reddeder.
 
 Windows build makinesinde:
 
@@ -87,7 +95,9 @@ WiX v4/Burn secildi; Inno Setup pilotu eklenmedi. Windows Service, transactional
 | Kontrol | Otomasyon | Gercek Windows 11 VM kabul kriteri |
 | --- | --- | --- |
 | PowerShell syntax | `Test-RestOtmPowerShellSyntax.ps1` | Parse hatasi yok |
+| PowerShell contract drift | `Test-RestOtmCanonicalContract.ps1` | Installer ve Rust host schema/network/child grafigi ayni |
 | Guvenli statik politika | `node --test packaging/windows/tests/windows-packaging.static.test.mjs` | Bypass/remote-code primitive yok |
+| Canonical schema drift | `node --test packaging/windows/tests/canonical-contract.static.test.mjs` | Installer/Rust host topology, secret adlari ve release kapisi ayni |
 | Artifact butunlugu | `Assert-RestOtmArtifactManifest` | Tum hash'ler ve PE imzalari gecerli |
 | Temiz kurulum | Burn UI + MSI log | Tek tik, reboot gerektirmeden servis Running |
 | Upgrade | Eski surum ustune yeni bundle | Veri korunur, downgrade reddedilir |
@@ -105,10 +115,11 @@ WiX v4/Burn secildi; Inno Setup pilotu eklenmedi. Windows Service, transactional
 
 ## Su anki acik blocker'lar
 
-- Imzali native `RESTOTMRuntime` supervisor binary'si yok.
-- Imzali native `restotm-installer-bootstrap.exe` yok.
+- Native `RESTOTMRuntime` kaynagi henuz Windows'ta derlenmedi, imzalanmadi ve clean-VM'de test edilmedi.
+- Native bootstrap ACL olusturma/dogrulama, DPAPI provisioning ve atomik rollback backend'i tamamlanmadi; helper exit 78 doner ve production capability probe'u yoktur.
 - Sabitlenmis ve lisans kosullari dogrulanmis PostgreSQL Windows binary dagitimi yok.
-- API/admin/waiter/print release artifact'leri ile tamamlanmis SHA-256 manifest yok.
+- API/admin/waiter/print ve LAN gateway Windows release artifact'leri ile tamamlanmis SHA-256 manifest yok.
+- Local API `/internal/runtime/shutdown` bearer-token endpoint'i ve print-agent installation/tenant provisioning sozlesmesi tamamlanmadi.
 - EV/OV Authenticode sertifikasi ve guvenli CI signing ortami yok.
 - Windows 11 clean-install/upgrade/uninstall/power-loss test matrisi kosulmadi.
 - Gercek harici yedek hedefi ve restore drill uygulamasi runtime tarafinda tamamlanmadi.

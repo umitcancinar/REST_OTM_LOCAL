@@ -105,17 +105,20 @@ $manifest = Assert-RestOtmArtifactManifest `
     -ManifestPath $ArtifactManifestPath `
     -RequireAuthenticode
 
-$contractPath = Join-Path (Get-RestOtmFullPath -Path $ArtifactRoot) 'installer-contract.json'
-if (-not (Test-Path -LiteralPath $contractPath -PathType Leaf)) {
-    throw 'installer-contract.json eksik; ilk calisma provisioning sozlesmesi olmadan kurulum uretilmez.'
+$artifact = Get-RestOtmFullPath -Path $ArtifactRoot
+$contractPath = Join-Path $artifact 'installer-contract.json'
+$contract = Assert-RestOtmInstallerContract `
+    -ContractPath $contractPath `
+    -RequireProductionReady
+Assert-RestOtmArtifactContractAlignment -Manifest $manifest -Contract $contract
+
+$bootstrapExecutable = Join-Path $artifact $contract.bootstrap_executable_relative_path
+if (-not (Test-Path -LiteralPath $bootstrapExecutable -PathType Leaf)) {
+    throw 'Native installer bootstrap executable canonical artifact yolunda bulunamadi.'
 }
-$contract = Get-Content -LiteralPath $contractPath -Raw | ConvertFrom-Json
-if ($contract.schemaVersion -ne 1 -or
-    $contract.firstRunProvisioning -ne $true -or
-    $contract.uninstallPreservesCustomerData -ne $true -or
-    $contract.serviceName -ne 'RESTOTMRuntime' -or
-    $contract.licensePublicKeyRelativePath -ne 'config/license-public-key.pem') {
-    throw 'Runtime installer sozlesmesi gecersiz veya guvenlik beklentilerini karsilamiyor.'
+& $bootstrapExecutable $contract.native_bootstrap.verification_command '--contract' $contractPath
+if ($LASTEXITCODE -ne 0) {
+    throw "Native bootstrap production contract capability probe basarisiz (exit=$LASTEXITCODE)."
 }
 
 [pscustomobject]@{

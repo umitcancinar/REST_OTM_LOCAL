@@ -13,6 +13,7 @@ import { orderService } from '../modules/orders/order.service';
 import { processCreatedOrder } from '../modules/orders/order.post-create';
 import { parseOrderIdempotencyKey } from '../modules/orders/order-idempotency.policy';
 import { printService } from '../modules/printing/print.service';
+import { acknowledgePrintJob } from '../modules/printing/print-outbox.service';
 
 let io: Server;
 
@@ -258,9 +259,44 @@ export function initializeSocketServer(
     });
 
     // ─── Print Result (from Print Agent) ────
-    socket.on('print:result' as any, (data: { jobId: string; success: boolean; error?: string }) => {
-      if (socket.role !== 'PRINT_AGENT' || !data || typeof data.jobId !== 'string' || data.jobId.length > 200) {
+    socket.on('print:result' as any, async (data: {
+      jobId: string;
+      attemptNumber?: number;
+      dispatchToken?: string;
+      success: boolean;
+      error?: string;
+    }) => {
+      if (
+        socket.role !== 'PRINT_AGENT'
+        || !data
+        || typeof data.jobId !== 'string'
+        || data.jobId.length > 200
+        || typeof data.success !== 'boolean'
+        || (data.error !== undefined && typeof data.error !== 'string')
+      ) {
         logger.warn(`Rejected invalid print result from socket ${socket.id}`);
+        return;
+      }
+      const hasLeaseProof = Number.isSafeInteger(data.attemptNumber)
+        && typeof data.dispatchToken === 'string'
+        && data.dispatchToken.length >= 16
+        && data.dispatchToken.length <= 64;
+      const outcome = hasLeaseProof
+        ? await acknowledgePrintJob(
+            socket.tenantId!,
+            data.jobId,
+            data.attemptNumber!,
+            data.dispatchToken!,
+            data.success,
+            data.error,
+          )
+        : await acknowledgePrintJob(socket.tenantId!, data.jobId, -1, '', data.success, data.error);
+      if (outcome === 'IGNORED') {
+        logger.warn(`Ignored stale/invalid print ACK for ${data.jobId}`);
+        return;
+      }
+      if (outcome !== 'NOT_FOUND' && !hasLeaseProof) {
+        logger.warn(`Rejected legacy ACK without lease proof for outbox job ${data.jobId}`);
         return;
       }
       if (data.success) {
@@ -268,6 +304,7 @@ export function initializeSocketServer(
       } else {
         logger.error(`🖨️  Print job ${data.jobId} failed:`, data.error);
       }
+      // Legacy jobs that predate the outbox still complete their in-process waiter.
       printService.printJobEmitter.emit(`result:${data.jobId}`, data);
     });
 

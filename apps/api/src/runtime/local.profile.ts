@@ -13,15 +13,22 @@ import {
   postgresConnectionFromUrl,
 } from '../modules/local-backup';
 import {
+  createLocalConnectivityRouter,
+  LOCAL_CONNECTIVITY_RECOVERY_RULES,
+  LocalConnectivityRuntime,
+} from '../modules/local-connectivity';
+import {
   createLocalLicenseGate,
   createLocalLicenseRouter,
   LocalLicenseRuntime,
 } from '../modules/local-license';
 import menuRoutes from '../modules/menu/menu.routes';
+import { MenuProjectionRuntime } from '../modules/menu-projection/menu-projection.runtime';
 import { initCleanupTask } from '../modules/orders/cleanup.task';
 import orderRoutes from '../modules/orders/order.routes';
 import posRoutes from '../modules/pos/pos.routes';
 import printRoutes from '../modules/printing/print.routes';
+import { PrintOutboxRuntime } from '../modules/printing/print-outbox.runtime';
 import localPublicRoutes from '../modules/public/local-public.routes';
 import reportRoutes from '../modules/reports/report.routes';
 import reservationRoutes from '../modules/reservations/reservation.routes';
@@ -38,6 +45,7 @@ export function registerLocalProfile(
   options: { includeAuth?: boolean; managedServices?: boolean } = {},
 ): RuntimeLifecycle {
   const managedServices = options.managedServices !== false;
+  const localConnectivityRuntime = new LocalConnectivityRuntime(localEnv.LOCAL_LAN_HOSTNAME);
   const localLicenseRuntime = managedServices
     ? new LocalLicenseRuntime({
         runtimeMode: 'local',
@@ -53,12 +61,39 @@ export function registerLocalProfile(
     ? new LocalBackupRuntime({
         dataDir: localEnv.LOCAL_POSTGRES_DATA_DIR,
         backupDir: localEnv.LOCAL_BACKUP_DIR,
+        ...(localEnv.LOCAL_BACKUP_EXTERNAL_DIR
+          ? { externalBackupDir: localEnv.LOCAL_BACKUP_EXTERNAL_DIR }
+          : {}),
+        externalVolumePolicy: localEnv.LOCAL_BACKUP_EXTERNAL_VOLUME_POLICY,
+        encryptionKey: localEnv.LOCAL_BACKUP_KEY(),
+        encryptionKeyId: localEnv.LOCAL_BACKUP_KEY_ID,
         pgDumpPath: localEnv.PG_DUMP_PATH,
+        pgRestorePath: localEnv.PG_RESTORE_PATH,
         connection: postgresConnectionFromUrl(localEnv.DATABASE_URL),
         retention: {
           daily: localEnv.BACKUP_RETENTION_DAILY,
           weekly: localEnv.BACKUP_RETENTION_WEEKLY,
           monthly: localEnv.BACKUP_RETENTION_MONTHLY,
+        },
+        externalRetention: {
+          daily: localEnv.BACKUP_EXTERNAL_RETENTION_DAILY,
+          weekly: localEnv.BACKUP_EXTERNAL_RETENTION_WEEKLY,
+          monthly: localEnv.BACKUP_EXTERNAL_RETENTION_MONTHLY,
+        },
+        restoreVerificationIntervalMs: localEnv.BACKUP_RESTORE_VERIFICATION_INTERVAL_MS,
+        restoreVerificationRetryMs: localEnv.BACKUP_RESTORE_VERIFICATION_RETRY_MS,
+      })
+    : undefined;
+  const menuProjectionRuntime = localLicenseRuntime
+    ? new MenuProjectionRuntime({
+        endpoint: `${localEnv.LOCAL_LICENSE_SERVER_URL}/api/cloud-sync/v1/publications`,
+        allowLoopbackHttp: localEnv.isDev,
+        credentials: () => {
+          const status = localLicenseRuntime.assertOperationalLicense('job');
+          return {
+            licenseKey: status.license.licenseKey,
+            hardwareId: status.license.hardwareId,
+          };
         },
       })
     : undefined;
@@ -68,6 +103,7 @@ export function registerLocalProfile(
     app.use(createLocalLicenseGate(localLicenseRuntime, {
       additionalRecoveryRules: [
         ...LOCAL_BACKUP_RECOVERY_RULES,
+        ...LOCAL_CONNECTIVITY_RECOVERY_RULES,
         { path: '/api/auth/login', methods: ['POST'] },
         { path: '/api/auth/refresh', methods: ['POST'] },
         { path: '/api/auth/logout', methods: ['POST'] },
@@ -76,6 +112,10 @@ export function registerLocalProfile(
   }
 
   if (options.includeAuth !== false) app.use('/api/auth', authRoutes);
+  app.use('/api/local-connectivity', createLocalConnectivityRouter(localConnectivityRuntime, [
+    authMiddleware,
+    rbac('OWNER', 'ADMIN'),
+  ]));
   app.use('/api/public', localPublicRoutes);
   if (localBackupRuntime) {
     app.use('/api/backup', createLocalBackupRouter(localBackupRuntime, [
@@ -101,6 +141,14 @@ export function registerLocalProfile(
       ? () => localLicenseRuntime.assertOperationalLicense('websocket')
       : undefined,
   });
+  const printOutboxRuntime = new PrintOutboxRuntime({
+    emit: (tenantId, eventName, payload) => {
+      socketServer.to(`tenant:${tenantId}`).emit(eventName, payload);
+    },
+    assertOperationalLicense: localLicenseRuntime
+      ? () => localLicenseRuntime.assertOperationalLicense('job')
+      : undefined,
+  });
   const stopCleanupTask = initCleanupTask(
     localLicenseRuntime
       ? () => localLicenseRuntime.assertOperationalLicense('job')
@@ -117,12 +165,16 @@ export function registerLocalProfile(
     afterStart: () => {
       localLicenseRuntime?.start();
       localBackupRuntime?.startScheduler();
+      printOutboxRuntime.start();
+      menuProjectionRuntime?.start();
     },
     async stop() {
       stopCleanupTask();
       unsubscribeLicenseStatus?.();
       localLicenseRuntime?.stop();
       localBackupRuntime?.stopScheduler();
+      printOutboxRuntime.stop();
+      menuProjectionRuntime?.stop();
       await new Promise<void>((resolve) => socketServer.close(() => resolve()));
     },
   };

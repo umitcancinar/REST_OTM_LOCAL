@@ -6,7 +6,12 @@ import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../../middlewares/auth.middleware';
 import { getTenantId } from '../../middlewares/tenant.middleware';
 import { printService } from './print.service';
-import { apiResponse } from '../../utils/apiResponse';
+import { apiResponse, paginatedResponse } from '../../utils/apiResponse';
+import {
+  parsePrintJobId,
+  parsePrintJobListQuery,
+  resolveReprintCommandId,
+} from './print-outbox.policy';
 
 export const printController = {
   async getPrinters(req: AuthenticatedRequest, res: Response, next: NextFunction) {
@@ -20,6 +25,47 @@ export const printController = {
     try {
       const status = await printService.getStatus(getTenantId(req));
       apiResponse({ res, data: status });
+    } catch (error) { next(error); }
+  },
+
+  async getJobs(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const query = parsePrintJobListQuery(req.query);
+      const result = await printService.listPrintJobs(getTenantId(req), query);
+      paginatedResponse(res, result.jobs, result.total, result.page, result.limit);
+    } catch (error) { next(error); }
+  },
+
+  async getJob(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const job = await printService.getPrintJob(
+        getTenantId(req),
+        parsePrintJobId(req.params.id),
+      );
+      apiResponse({ res, data: job });
+    } catch (error) { next(error); }
+  },
+
+  async getOperationsSummary(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const summary = await printService.getOperationsSummary(getTenantId(req));
+      apiResponse({ res, data: summary });
+    } catch (error) { next(error); }
+  },
+
+  async reprintJob(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const result = await printService.reprintJob(
+        getTenantId(req),
+        parsePrintJobId(req.params.id),
+        resolveReprintCommandId(req.get('Idempotency-Key'), req.body),
+      );
+      apiResponse({
+        res,
+        statusCode: 202,
+        data: result,
+        message: 'Yeniden baskı işi kabul edildi',
+      });
     } catch (error) { next(error); }
   },
 

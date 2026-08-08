@@ -3,11 +3,16 @@
 // ==========================================
 
 import { Prisma } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import prisma from '../../config/database';
 import { logger } from '../../utils/logger';
 import { resolvePreparationDepartment } from '../../utils/department-routing';
 import { resolveItemPrintTrigger } from '../../utils/print-triggers';
-import { printService } from '../printing/print.service';
+import {
+  enqueueItemUpdatePrintJob,
+  enqueueProductionStationJobs,
+} from '../printing/print-payload.builder';
+import { kickPrintOutbox } from '../printing/print-outbox.service';
 import {
   hashOrderCommand,
   IdempotencyConflictError,
@@ -357,9 +362,20 @@ export const orderService = {
           });
         }
 
+        if (data.printToKitchen && newItemIds.length > 0) {
+          await enqueueProductionStationJobs(
+            tx,
+            tenantId,
+            persistedOrder.id,
+            newItemIds,
+            idempotencyKey ? `command:${idempotencyKey}` : undefined,
+          );
+        }
+
         return { order: { ...persistedOrder, newItemIds }, isReplay: false };
       });
 
+      kickPrintOutbox();
       return result;
     } catch (error) {
       const isUniqueConflict =
@@ -379,7 +395,7 @@ export const orderService = {
 
       let newStatus = status as any;
       let newPaidAmount = existingOrder.paidAmount;
-      let newPayments = Array.isArray(existingOrder.payments) ? [...existingOrder.payments] : [];
+      const newPayments = Array.isArray(existingOrder.payments) ? [...existingOrder.payments] : [];
 
       if (amount !== undefined && amount > 0) {
         newPaidAmount += amount;
@@ -427,58 +443,47 @@ export const orderService = {
   },
 
   async updateItemStatus(tenantId: string, orderId: string, itemId: string, status: string, notes?: string) {
-    // Verify order belongs to tenant
-    const order = await prisma.order.findFirst({
-      where: { id: orderId, tenantId },
-    });
-    if (!order) throw Object.assign(new Error('Order not found'), { statusCode: 404 });
-
-    // Kalem, dogrulanan siparise ait olmali. Yalnizca itemId ile arandiginda
-    // kullanici kendi orderId'si + baska bir kiracinin itemId'si ile o kalemi
-    // degistirebiliyordu; yukaridaki order/tenant kontrolu kalemi kapsamiyor.
-    // OrderItem, Order'a SubCheck uzerinden baglidir.
-    const currentItem = await prisma.orderItem.findFirst({
-      where: { id: itemId, subCheck: { orderId } },
-    });
-    if (!currentItem) throw Object.assign(new Error('Item not found'), { statusCode: 404 });
-
-    const updateData: any = { status: status as any };
-    if (notes !== undefined) updateData.notes = notes;
-
-    // If marked as Ikram, set isTreat and drop the price to 0
-    if (notes && notes.includes('[İKRAM]')) {
-      updateData.totalPrice = 0;
-      updateData.isTreat = true;
-    } else if (currentItem.isTreat && (!notes || !notes.includes('[İKRAM]'))) {
-      // Revert if removed
-      updateData.isTreat = false;
-      const extrasTotal = (currentItem.extras as any[] || []).reduce((sum, e) => sum + e.price, 0);
-      updateData.totalPrice = (currentItem.unitPrice * currentItem.portionMultiplier + extrasTotal) * currentItem.quantity;
-    }
-
-    const updatedItem = await prisma.orderItem.update({
-      where: { id: itemId },
-      data: updateData,
-    });
-
-    // Recalculate totals for subChecks and order
-    await this.recalculateOrderTotals(tenantId, orderId);
-
-    // Fis SADECE gercek bir durum degisiminde basilir (bkz. print-triggers).
-    // Kontrolun sunucuda olmasi sart — istemci tarafi koruma, ag tekrarlarini
-    // ve diger panelleri kapsamaz.
-    const trigger = resolveItemPrintTrigger(
-      { status: currentItem.status, isTreat: currentItem.isTreat },
-      status,
-      Boolean(updateData.isTreat),
-    );
-
-    if (trigger) {
-      printService.printItemUpdate(tenantId, orderId, itemId, trigger).catch(err => {
-        logger.error(`Failed to print item update for ${itemId}:`, err);
+    const updatedItem = await prisma.$transaction(async (tx) => {
+      const order = await tx.order.findFirst({ where: { id: orderId, tenantId } });
+      if (!order) throw Object.assign(new Error('Order not found'), { statusCode: 404 });
+      const currentItem = await tx.orderItem.findFirst({
+        where: { id: itemId, subCheck: { orderId } },
       });
-    }
+      if (!currentItem) throw Object.assign(new Error('Item not found'), { statusCode: 404 });
 
+      const updateData: any = { status: status as any };
+      if (notes !== undefined) updateData.notes = notes;
+      if (notes && notes.includes('[İKRAM]')) {
+        updateData.totalPrice = 0;
+        updateData.isTreat = true;
+      } else if (currentItem.isTreat && (!notes || !notes.includes('[İKRAM]'))) {
+        updateData.isTreat = false;
+        const extrasTotal = (currentItem.extras as any[] || []).reduce((sum, extra) => sum + extra.price, 0);
+        updateData.totalPrice =
+          (currentItem.unitPrice * currentItem.portionMultiplier + extrasTotal) * currentItem.quantity;
+      }
+
+      const updated = await tx.orderItem.update({ where: { id: itemId }, data: updateData });
+      const trigger = resolveItemPrintTrigger(
+        { status: currentItem.status, isTreat: currentItem.isTreat },
+        status,
+        Boolean(updateData.isTreat),
+      );
+      if (trigger) {
+        await enqueueItemUpdatePrintJob(
+          tx,
+          tenantId,
+          orderId,
+          itemId,
+          trigger,
+          randomUUID(),
+        );
+      }
+      return updated;
+    });
+
+    await this.recalculateOrderTotals(tenantId, orderId);
+    kickPrintOutbox();
     return updatedItem;
   },
 
@@ -582,8 +587,8 @@ export const orderService = {
     const groupedItems: Record<string, { name: string; quantity: number; price: number }> = {};
     
     for (const item of allItems) {
-      let isCancelled = item.status === 'CANCELLED';
-      let isIkram = item.isTreat;
+      const isCancelled = item.status === 'CANCELLED';
+      const isIkram = item.isTreat;
 
       let suffix = '';
       if (isCancelled) suffix = ' [İPTAL]';

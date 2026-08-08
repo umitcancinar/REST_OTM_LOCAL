@@ -13,6 +13,7 @@ router.get('/tenant', publicController.getTenantInfo);
  */
 router.get('/menu/:slug', publicController.getMenuBySlug);
 router.get('/menu', publicController.getMenu); // Legacy support
+router.get('/v1/sites/:slug/publication', publicController.getPublication);
 
 /**
  * ─── CMS CONTENT (PUBLIC) ──────────────────────────

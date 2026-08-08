@@ -1,18 +1,88 @@
 {
-  "schemaVersion": 1,
-  "serviceName": "RESTOTMRuntime",
-  "bootstrapExecutableRelativePath": "bin/restotm-installer-bootstrap.exe",
-  "firstRunProvisioning": true,
-  "uninstallPreservesCustomerData": true,
-  "licensePublicKeyRelativePath": "config/license-public-key.pem",
+  "schema_version": 1,
+  "canonical_runtime_schema": "restotm-windows-host-v1",
+  "service_name": "RESTOTMRuntime",
+  "bootstrap_executable_relative_path": "bin/restotm-installer-bootstrap.exe",
+  "runtime_config_relative_path": "config/runtime.json",
+  "secret_store_relative_path": "config/secrets.json",
+  "bootstrap_receipt_relative_path": "config/bootstrap-receipt.json",
+  "acl_policy_version": "restotm-windows-acl-v1",
+  "first_run_provisioning": true,
+  "uninstall_preserves_customer_data": true,
+  "license_public_key_relative_path": "config/license-public-key.pem",
+  "native_bootstrap": {
+    "production_ready": false,
+    "verification_command": "verify-production-contract"
+  },
   "secrets": {
-    "generatedPerInstallation": true,
-    "protection": "dpapi-local-machine-v1"
+    "schema_version": 1,
+    "generated_per_installation": true,
+    "protection": "dpapi-local-machine-v1",
+    "required_values": [
+      "databaseUrl",
+      "internalApiToken",
+      "printAgentSecret",
+      "jwtAccessSecret",
+      "jwtRefreshSecret",
+      "backupEncryptionKey",
+      "gatewayControlSecret"
+    ]
   },
   "network": {
-    "internalBind": "127.0.0.1",
-    "gatewayPort": 8787,
-    "gatewayFirewallProfile": "Private",
-    "gatewayRemoteScope": "LocalSubnet"
-  }
+    "postgres": { "host": "127.0.0.1", "port": 55432 },
+    "api": { "host": "127.0.0.1", "port": 4100 },
+    "admin": { "host": "127.0.0.1", "port": 3100 },
+    "waiter": { "host": "127.0.0.1", "port": 3200 },
+    "print_agent": { "host": "127.0.0.1", "port": 4300 },
+    "gateway": {
+      "host": "0.0.0.0",
+      "port": 8787,
+      "firewall_profile": "Private",
+      "remote_scope": "LocalSubnet"
+    }
+  },
+  "children": [
+    {
+      "name": "postgres",
+      "role": "postgres-server",
+      "relative_executable": "postgres/bin/postgres.exe",
+      "relative_working_directory": "postgres/bin",
+      "depends_on": []
+    },
+    {
+      "name": "local-api",
+      "role": "local-api",
+      "relative_executable": "api/restotm-api.exe",
+      "relative_working_directory": "api",
+      "depends_on": ["postgres"]
+    },
+    {
+      "name": "admin-ui",
+      "role": "admin-ui",
+      "relative_executable": "admin/restotm-admin.exe",
+      "relative_working_directory": "admin",
+      "depends_on": ["local-api"]
+    },
+    {
+      "name": "waiter-ui",
+      "role": "waiter-ui",
+      "relative_executable": "waiter/restotm-waiter.exe",
+      "relative_working_directory": "waiter",
+      "depends_on": ["local-api"]
+    },
+    {
+      "name": "print-agent",
+      "role": "print-agent",
+      "relative_executable": "print-agent/restotm-print-agent.exe",
+      "relative_working_directory": "print-agent",
+      "depends_on": ["local-api"]
+    },
+    {
+      "name": "lan-gateway",
+      "role": "lan-gateway",
+      "relative_executable": "gateway/restotm-lan-gateway.exe",
+      "relative_working_directory": "gateway",
+      "depends_on": ["local-api", "admin-ui", "waiter-ui"]
+    }
+  ]
 }

@@ -11,6 +11,8 @@ import {
   CheckCircle2,
   Clock3,
   Copy,
+  Eye,
+  EyeOff,
   KeyRound,
   Laptop,
   Loader2,
@@ -270,6 +272,7 @@ export default function LicenseManagementPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
   const [createdKey, setCreatedKey] = useState('');
+  const [showCreatedKey, setShowCreatedKey] = useState(false);
   const [createdLicenseName, setCreatedLicenseName] = useState('');
   const [createForm, setCreateForm] = useState({
     tenantId: '',
@@ -293,6 +296,7 @@ export default function LicenseManagementPage() {
   const [actionError, setActionError] = useState('');
 
   const createTenantRef = useRef<HTMLSelectElement>(null);
+  const createdKeyHeadingRef = useRef<HTMLHeadingElement>(null);
   const confirmationRef = useRef<HTMLInputElement>(null);
 
   const loadData = useCallback(async () => {
@@ -318,6 +322,26 @@ export default function LicenseManagementPage() {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, [loadData]);
+
+  useEffect(() => {
+    if (!createdKey) return;
+    const frame = window.requestAnimationFrame(() => createdKeyHeadingRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [createdKey]);
+
+  useEffect(() => {
+    if (!createdKey || !showCreatedKey) return;
+    const hideKey = () => setShowCreatedKey(false);
+    const timer = window.setTimeout(hideKey, 15_000);
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') hideKey();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [createdKey, showCreatedKey]);
 
   const stats = useMemo(() => {
     const counts: Record<Lifecycle, number> = {
@@ -356,6 +380,7 @@ export default function LicenseManagementPage() {
     if (creating) return;
     setCreateOpen(false);
     setCreatedKey('');
+    setShowCreatedKey(false);
     setCreatedLicenseName('');
     setCreateError('');
     setCreateStep(1);
@@ -437,6 +462,7 @@ export default function LicenseManagementPage() {
       setTotal((value) => value + 1);
       setCreatedLicenseName(result.license.restaurantName);
       setCreatedKey(result.key);
+      setShowCreatedKey(false);
       toast.success('Lisans güvenle üretildi. Anahtarı şimdi teslim edin.');
     } catch (error) {
       setCreateError(normalizeError(error, 'Lisans üretilemedi.'));
@@ -560,6 +586,9 @@ export default function LicenseManagementPage() {
   }
 
   const selectedTenant = tenants.find((tenant) => tenant.id === createForm.tenantId);
+  const maskedCreatedKey = createdKey
+    ? `${createdKey.slice(0, 5)}••••-••••-••••-${createdKey.slice(-4)}`
+    : '';
 
   return (
     <main className={styles.page}>
@@ -742,22 +771,28 @@ export default function LicenseManagementPage() {
 
       <Dialog
         open={createOpen}
-        onClose={closeCreate}
+        onClose={createdKey ? () => createdKeyHeadingRef.current?.focus() : closeCreate}
         titleId="create-license-title"
         descriptionId="create-license-description"
         initialFocusRef={createTenantRef}
         className={styles.createDialog}
       >
-        <button className={styles.closeButton} type="button" onClick={closeCreate} aria-label="Lisans oluşturma penceresini kapat"><X size={18} /></button>
+        {!createdKey && <button className={styles.closeButton} type="button" onClick={closeCreate} aria-label="Lisans oluşturma penceresini kapat"><X size={18} /></button>}
         {createdKey ? (
-          <section className={styles.keyReveal} aria-live="polite">
+          <section className={styles.keyReveal}>
             <span className={styles.successSeal}><Check size={28} /></span>
             <span className={styles.eyebrow}>LİSANS HAZIR</span>
-            <h2 id="create-license-title">Anahtarı şimdi teslim edin.</h2>
-            <p id="create-license-description"><strong>{createdLicenseName}</strong> için üretildi. Güvenlik nedeniyle bu tam anahtar daha sonra yeniden görüntülenemez.</p>
+            <h2 id="create-license-title" ref={createdKeyHeadingRef} tabIndex={-1}>Anahtarı şimdi teslim edin.</h2>
+            <p id="create-license-description"><strong>{createdLicenseName}</strong> için üretildi. Tam anahtar varsayılan olarak maskelidir ve gösterildikten 15 saniye sonra yeniden gizlenir.</p>
             <div className={styles.keyBox}>
-              <code>{createdKey}</code>
-              <button type="button" onClick={() => void copyKey()}><Copy size={16} /> Kopyala</button>
+              <code aria-label={showCreatedKey ? 'Tam lisans anahtarı' : 'Maskelenmiş lisans anahtarı'}>{showCreatedKey ? createdKey : maskedCreatedKey}</code>
+              <div className={styles.keyActions}>
+                <button type="button" onClick={() => setShowCreatedKey((visible) => !visible)} aria-pressed={showCreatedKey}>
+                  {showCreatedKey ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+                  {showCreatedKey ? 'Gizle' : 'Göster'}
+                </button>
+                <button type="button" onClick={() => void copyKey()}><Copy size={16} aria-hidden="true" /> Kopyala</button>
+              </div>
             </div>
             <div className={styles.securityNote}><ShieldCheck size={18} /><span>Anahtarı güvenli bir kanalla müşteriye iletin. Bu pencere kapanınca yalnız maskeli hali kalır.</span></div>
             <button className={styles.primaryButton} type="button" onClick={closeCreate}>Tamam, anahtarı aldım</button>

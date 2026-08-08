@@ -1,5 +1,5 @@
 import path from 'path';
-import { createPublicKey } from 'crypto';
+import { createPublicKey, createSecretKey } from 'crypto';
 import {
   addStartupError,
   assertEnvironment,
@@ -8,9 +8,78 @@ import {
   requireSecret,
   sharedEnv,
 } from './env.shared';
+import { validateLocalLanHostname } from '../modules/local-connectivity/local-connectivity.runtime';
 
 const LOCAL_LICENSE_SERVER_URL = (process.env.LOCAL_LICENSE_SERVER_URL || '').replace(/\/+$/, '');
 const LOCAL_LICENSE_PUBLIC_KEY = (process.env.LOCAL_LICENSE_PUBLIC_KEY || '').replace(/\\n/g, '\n');
+const LOCAL_LAN_HOSTNAME = (() => {
+  const configured = process.env.LOCAL_LAN_HOSTNAME || '';
+  if (sharedEnv.isProd && sharedEnv.RUNTIME_MODE === 'local' && !configured) {
+    addStartupError('LOCAL_LAN_HOSTNAME installer tarafindan tanimlanmali.');
+  }
+  const resolved = configured || 'restotm-local';
+  try {
+    return validateLocalLanHostname(resolved);
+  } catch {
+    addStartupError('LOCAL_LAN_HOSTNAME gecerli bir DNS hostname olmali.');
+    return 'restotm-local';
+  }
+})();
+const LOCAL_BACKUP_KEY_ID = process.env.LOCAL_BACKUP_KEY_ID
+  || (sharedEnv.isProd ? '' : 'development-only');
+const LOCAL_BACKUP_EXTERNAL_DIR = (() => {
+  const configured = process.env.LOCAL_BACKUP_EXTERNAL_DIR || '';
+  if (sharedEnv.isProd && sharedEnv.RUNTIME_MODE === 'local') {
+    if (!configured) addStartupError('LOCAL_BACKUP_EXTERNAL_DIR saha kurulumunda zorunludur.');
+    else if (!path.isAbsolute(configured)) addStartupError('LOCAL_BACKUP_EXTERNAL_DIR mutlak bir yol olmali.');
+  }
+  return configured ? path.resolve(configured) : '';
+})();
+const LOCAL_BACKUP_EXTERNAL_VOLUME_POLICY = (() => {
+  const configured = process.env.LOCAL_BACKUP_EXTERNAL_VOLUME_POLICY || '';
+  const resolved = configured || 'warn';
+  if (!['require-separate', 'warn', 'allow'].includes(resolved)) {
+    addStartupError('LOCAL_BACKUP_EXTERNAL_VOLUME_POLICY require-separate, warn veya allow olmali.');
+    return 'warn' as const;
+  }
+  if (
+    sharedEnv.isProd
+    && sharedEnv.RUNTIME_MODE === 'local'
+    && resolved === 'allow'
+  ) {
+    addStartupError('Uretim local profilde volume uyarisi kapatilamaz; warn veya require-separate secilmeli.');
+  }
+  return resolved as 'require-separate' | 'warn' | 'allow';
+})();
+
+const LOCAL_BACKUP_KEY = (() => {
+  const configured = process.env.LOCAL_BACKUP_KEY_BASE64 || '';
+  const fallback = Buffer.alloc(32, 0xa5).toString('base64');
+  const encoded = configured || (sharedEnv.isProd ? '' : fallback);
+  if (sharedEnv.isProd && sharedEnv.RUNTIME_MODE === 'local' && !configured) {
+    addStartupError(
+      'LOCAL_BACKUP_KEY_BASE64 tanimli degil; supervisor DPAPI ile actigi 32-byte anahtari aktarmali.',
+    );
+  }
+  if (!encoded) return createSecretKey(Buffer.alloc(0));
+  const decoded = Buffer.from(encoded, 'base64');
+  if (configured) delete process.env.LOCAL_BACKUP_KEY_BASE64;
+  if (decoded.length !== 32 || decoded.toString('base64') !== encoded) {
+    addStartupError('LOCAL_BACKUP_KEY_BASE64 canonical Base64 biciminde tam 32 byte olmali.');
+    decoded.fill(0);
+    return createSecretKey(Buffer.alloc(0));
+  }
+  const key = createSecretKey(decoded);
+  decoded.fill(0);
+  return key;
+})();
+
+if (sharedEnv.isProd && sharedEnv.RUNTIME_MODE === 'local' && !LOCAL_BACKUP_KEY_ID) {
+  addStartupError('LOCAL_BACKUP_KEY_ID tanimli degil.');
+}
+if (LOCAL_BACKUP_KEY_ID && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(LOCAL_BACKUP_KEY_ID)) {
+  addStartupError('LOCAL_BACKUP_KEY_ID gecersiz.');
+}
 
 if (sharedEnv.isProd && sharedEnv.RUNTIME_MODE === 'local') {
   try {
@@ -57,6 +126,7 @@ export const localEnv = {
   LOCAL_LICENSE_SERVER_URL,
   LOCAL_LICENSE_PUBLIC_KEY,
   LOCAL_LICENSE_DATA_DIR,
+  LOCAL_LAN_HOSTNAME,
   LOCAL_LICENSE_HEARTBEAT_MS: positiveInteger(
     'LOCAL_LICENSE_HEARTBEAT_MS',
     60 * 60 * 1000,
@@ -75,10 +145,30 @@ export const localEnv = {
     'LOCAL_BACKUP_DIR',
     path.resolve(process.cwd(), 'backups'),
   ),
+  LOCAL_BACKUP_EXTERNAL_DIR,
+  LOCAL_BACKUP_EXTERNAL_VOLUME_POLICY,
+  // Her runtime kendi tek kullanimlik kopyasini alir. Kalici kopya Buffer
+  // yerine KeyObject'te tutulur; constructor kendisine verilen kopyayi siler.
+  LOCAL_BACKUP_KEY: () => Buffer.from(LOCAL_BACKUP_KEY.export()),
+  LOCAL_BACKUP_KEY_ID,
   PG_DUMP_PATH: requireAbsoluteLocalPath('PG_DUMP_PATH', sharedEnv.isProd ? '' : 'pg_dump'),
+  PG_RESTORE_PATH: requireAbsoluteLocalPath('PG_RESTORE_PATH', sharedEnv.isProd ? '' : 'pg_restore'),
   BACKUP_RETENTION_DAILY: positiveInteger('BACKUP_RETENTION_DAILY', 7, 0),
   BACKUP_RETENTION_WEEKLY: positiveInteger('BACKUP_RETENTION_WEEKLY', 4, 0),
   BACKUP_RETENTION_MONTHLY: positiveInteger('BACKUP_RETENTION_MONTHLY', 12, 0),
+  BACKUP_EXTERNAL_RETENTION_DAILY: positiveInteger('BACKUP_EXTERNAL_RETENTION_DAILY', 30, 0),
+  BACKUP_EXTERNAL_RETENTION_WEEKLY: positiveInteger('BACKUP_EXTERNAL_RETENTION_WEEKLY', 12, 0),
+  BACKUP_EXTERNAL_RETENTION_MONTHLY: positiveInteger('BACKUP_EXTERNAL_RETENTION_MONTHLY', 24, 0),
+  BACKUP_RESTORE_VERIFICATION_INTERVAL_MS: positiveInteger(
+    'BACKUP_RESTORE_VERIFICATION_INTERVAL_MS',
+    7 * 24 * 60 * 60 * 1000,
+    60 * 60 * 1000,
+  ),
+  BACKUP_RESTORE_VERIFICATION_RETRY_MS: positiveInteger(
+    'BACKUP_RESTORE_VERIFICATION_RETRY_MS',
+    6 * 60 * 60 * 1000,
+    60 * 1000,
+  ),
 } as const;
 
 assertEnvironment();

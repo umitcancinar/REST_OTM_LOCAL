@@ -11,7 +11,8 @@
   --atelier-red: #a33a30;
   position: relative;
   min-height: 100svh;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   background:
     linear-gradient(90deg, rgba(72, 61, 49, 0.035) 1px, transparent 1px),
     linear-gradient(rgba(72, 61, 49, 0.035) 1px, transparent 1px),
@@ -254,6 +255,8 @@
 }
 
 .statusFacts dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
   color: #e8e0d6;
   font-size: 0.79rem;
   font-weight: 600;
@@ -449,6 +452,8 @@
   line-height: 1.45;
 }
 
+.feedback span { min-width: 0; overflow-wrap: anywhere; }
+
 .feedback svg { flex: 0 0 auto; margin-top: 1px; }
 .feedbackDanger { border-color: rgba(163, 58, 48, 0.18); background: rgba(163, 58, 48, 0.06); color: #873329; }
 
@@ -541,6 +546,7 @@
   .recoveryGrid { grid-template-columns: 1fr; }
   .recoveryHeading { align-items: flex-start; flex-direction: column; gap: 2px; }
   .footer { gap: 12px; }
+  .keyField input { min-width: 0; font-size: 0.78rem; letter-spacing: 0.02em; }
 }
 
 @media (prefers-reduced-motion: reduce) {

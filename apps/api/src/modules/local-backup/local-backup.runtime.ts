@@ -1,28 +1,49 @@
-import { createHash, randomUUID } from 'node:crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  createSecretKey,
+  randomBytes,
+  randomUUID,
+  type KeyObject,
+} from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { createReadStream } from 'node:fs';
 import {
   chmod,
   lstat,
   mkdir,
+  mkdtemp,
   open,
   readdir,
   readFile,
   realpath,
   rename,
+  rm,
   stat,
   unlink,
   writeFile,
 } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
+import { pipeline } from 'node:stream/promises';
 
-const MANIFEST_VERSION = 1;
+const MANIFEST_VERSION = 2;
 const DEFAULT_BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_SCHEDULER_POLL_MS = 15 * 60 * 1000;
 const DEFAULT_PROCESS_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_LOCK_STALE_MS = 2 * 60 * 60 * 1000;
-const BACKUP_FILE_PATTERN = /^restotm-\d{8}T\d{9}Z-[0-9a-f-]{36}\.dump$/i;
+const DEFAULT_RESTORE_VERIFICATION_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_RESTORE_VERIFICATION_RETRY_MS = 6 * 60 * 60 * 1000;
+const DEFAULT_EXTERNAL_RETENTION: BackupRetentionPolicy = { daily: 30, weekly: 12, monthly: 24 };
+const REPLICATION_STATE_VERSION = 1;
+const REPLICATION_STATE_FILE = '.restotm-replication-state.json';
+const BACKUP_V1_FILE_PATTERN = /^restotm-\d{8}T\d{9}Z-[0-9a-f-]{36}\.dump$/i;
+const BACKUP_V2_FILE_PATTERN = /^restotm-\d{8}T\d{9}Z-[0-9a-f-]{36}\.dump\.enc$/i;
 const BACKUP_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const BACKUP_KEY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const AES_GCM_IV_BYTES = 12;
+const AES_GCM_TAG_BYTES = 16;
 
 export type BackupReason = 'manual' | 'scheduled';
 
@@ -46,13 +67,24 @@ export interface LocalBackupConfig {
   dataDir: string;
   /** Veri dizininin disinda, sadece REST_OTM'nin yonettigi yedek dizini. */
   backupDir: string;
+  /** Opsiyonel harici disk/NAS mount hedefi; production local profilde zorunludur. */
+  externalBackupDir?: string;
+  externalVolumePolicy?: 'require-separate' | 'warn' | 'allow';
   connection: PostgresConnectionOptions;
+  /** Supervisor tarafindan DPAPI ile acilip yalniz bu prosese verilen 32 byte anahtar. */
+  encryptionKey: Uint8Array;
+  /** Anahtar rotasyonunda hangi DPAPI kaydinin kullanilacagini belirleyen, sir olmayan kimlik. */
+  encryptionKeyId: string;
   pgDumpPath?: string;
+  pgRestorePath?: string;
   retention?: Partial<BackupRetentionPolicy>;
+  externalRetention?: Partial<BackupRetentionPolicy>;
   processTimeoutMs?: number;
   backupIntervalMs?: number;
   schedulerPollMs?: number;
   lockStaleMs?: number;
+  restoreVerificationIntervalMs?: number;
+  restoreVerificationRetryMs?: number;
   clock?: () => Date;
 }
 
@@ -66,7 +98,7 @@ export interface BackupProcessAdapter {
   run(executable: string, args: readonly string[], options: BackupProcessOptions): Promise<void>;
 }
 
-export interface BackupManifest {
+export interface BackupManifestV1 {
   manifestVersion: 1;
   id: string;
   format: 'pg_dump-custom';
@@ -77,9 +109,45 @@ export interface BackupManifest {
   sha256: string;
 }
 
+export interface BackupManifestV2 {
+  manifestVersion: 2;
+  id: string;
+  format: 'pg_dump-custom';
+  reason: BackupReason;
+  createdAt: string;
+  fileName: string;
+  /** Sifreli dosyanin boyutu. */
+  sizeBytes: number;
+  plainSizeBytes: number;
+  cipherSha256: string;
+  encryption: {
+    algorithm: 'aes-256-gcm';
+    keyId: string;
+    ivBase64: string;
+    authTagBase64: string;
+  };
+}
+
+export type BackupManifest = BackupManifestV1 | BackupManifestV2;
+
 export interface BackupDownload {
   manifest: BackupManifest;
   absolutePath: string;
+}
+
+export interface BackupRestoreVerification {
+  manifest: BackupManifest;
+  plainSizeBytes: number;
+  verifiedAt: string;
+}
+
+export interface RestoreVerificationRecord {
+  status: 'SUCCESS' | 'FAILED';
+  backupId: string | null;
+  verifiedAt: string;
+  local: 'VERIFIED' | 'FAILED' | 'NOT_AVAILABLE';
+  external: 'VERIFIED' | 'FAILED' | 'NOT_AVAILABLE' | 'NOT_CONFIGURED';
+  code: string | null;
 }
 
 export interface LocalBackupStatus {
@@ -90,6 +158,31 @@ export interface LocalBackupStatus {
   lastSuccess: BackupManifest | null;
   lastError: { code: string; occurredAt: string } | null;
   retention: BackupRetentionPolicy;
+  externalReplication: {
+    configured: boolean;
+    running: boolean;
+    healthy: boolean;
+    alarm: 'NONE' | 'WARNING' | 'ERROR';
+    pendingCount: number;
+    lastSuccess: { id: string; occurredAt: string } | null;
+    lastError: { code: string; occurredAt: string } | null;
+    volume: {
+      policy: 'require-separate' | 'warn' | 'allow';
+      separate: boolean | null;
+      warningCode: string | null;
+      acceptanceRequired: boolean;
+    };
+    retention: BackupRetentionPolicy | null;
+  };
+  restoreVerification: {
+    running: boolean;
+    lastRestoreVerification: RestoreVerificationRecord | null;
+    nextDueAt: string;
+    alarm: 'NONE' | 'WARNING' | 'ERROR';
+    intervalMs: number;
+    retryMs: number;
+    licenseGatePolicy: 'RECOVERY_MAINTENANCE_ALWAYS';
+  };
 }
 
 export class LocalBackupError extends Error {
@@ -146,6 +239,41 @@ export class ExecFileBackupProcessAdapter implements BackupProcessAdapter {
   }
 }
 
+export class ExecFileRestoreProcessAdapter implements BackupProcessAdapter {
+  async run(
+    executable: string,
+    args: readonly string[],
+    options: BackupProcessOptions,
+  ): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      execFile(
+        executable,
+        [...args],
+        {
+          cwd: options.cwd,
+          env: options.env,
+          timeout: options.timeoutMs,
+          windowsHide: true,
+          maxBuffer: 4 * 1024 * 1024,
+        },
+        (error) => {
+          if (!error) {
+            resolve();
+            return;
+          }
+          const processError = error as NodeJS.ErrnoException & { killed?: boolean };
+          const failureCode = processError.killed
+            ? 'PG_RESTORE_TIMEOUT'
+            : processError.code === 'ENOENT'
+              ? 'PG_RESTORE_NOT_FOUND'
+              : 'BACKUP_ARCHIVE_INVALID';
+          reject(new LocalBackupError(failureCode, 'Yedek arsivi geri yukleme dogrulamasindan gecemedi.', 409));
+        },
+      );
+    });
+  }
+}
+
 interface BackupScanResult {
   backups: BackupManifest[];
   invalidEntryCount: number;
@@ -154,6 +282,15 @@ interface BackupScanResult {
 interface HeldBackupLock {
   token: string;
   release(): Promise<void>;
+}
+
+interface ReplicationState {
+  stateVersion: 1;
+  pendingIds: string[];
+  lastSuccess: { id: string; occurredAt: string } | null;
+  lastError: { code: string; occurredAt: string } | null;
+  lastRestoreVerification: RestoreVerificationRecord | null;
+  nextRestoreVerificationDueAt: string | null;
 }
 
 function positiveDuration(value: number | undefined, fallback: number, field: string): number {
@@ -170,6 +307,52 @@ function retentionCount(value: number | undefined, fallback: number, field: stri
     throw new LocalBackupError('INVALID_BACKUP_CONFIG', `${field} gecersiz.`);
   }
   return resolved;
+}
+
+function isReplicationState(value: unknown): value is ReplicationState {
+  if (!value || typeof value !== 'object') return false;
+  const state = value as Partial<ReplicationState>;
+  const validEvent = (event: ReplicationState['lastSuccess'] | undefined): boolean => (
+    event === null
+    || Boolean(
+      event
+      && typeof event.id === 'string'
+      && BACKUP_ID_PATTERN.test(event.id)
+      && typeof event.occurredAt === 'string'
+      && Number.isFinite(Date.parse(event.occurredAt)),
+    )
+  );
+  const validError = state.lastError === null || Boolean(
+    state.lastError
+    && typeof state.lastError.code === 'string'
+    && /^[A-Z0-9_]{3,64}$/.test(state.lastError.code)
+    && typeof state.lastError.occurredAt === 'string'
+    && Number.isFinite(Date.parse(state.lastError.occurredAt)),
+  );
+  const restore = state.lastRestoreVerification;
+  const validRestore = restore === undefined || restore === null || Boolean(
+    restore
+    && (restore.status === 'SUCCESS' || restore.status === 'FAILED')
+    && (restore.backupId === null || BACKUP_ID_PATTERN.test(restore.backupId))
+    && typeof restore.verifiedAt === 'string'
+    && Number.isFinite(Date.parse(restore.verifiedAt))
+    && ['VERIFIED', 'FAILED', 'NOT_AVAILABLE'].includes(restore.local)
+    && ['VERIFIED', 'FAILED', 'NOT_AVAILABLE', 'NOT_CONFIGURED'].includes(restore.external)
+    && (restore.code === null || /^[A-Z0-9_]{3,64}$/.test(restore.code)),
+  );
+  const validNextDue = state.nextRestoreVerificationDueAt === undefined
+    || state.nextRestoreVerificationDueAt === null
+    || (typeof state.nextRestoreVerificationDueAt === 'string'
+      && Number.isFinite(Date.parse(state.nextRestoreVerificationDueAt)));
+  return state.stateVersion === REPLICATION_STATE_VERSION
+    && Array.isArray(state.pendingIds)
+    && state.pendingIds.length <= 10_000
+    && state.pendingIds.every((id) => typeof id === 'string' && BACKUP_ID_PATTERN.test(id))
+    && new Set(state.pendingIds).size === state.pendingIds.length
+    && validEvent(state.lastSuccess)
+    && validError
+    && validRestore
+    && validNextDue;
 }
 
 function safeDecode(value: string, field: string): string {
@@ -236,13 +419,13 @@ function validateConnection(connection: PostgresConnectionOptions): void {
   }
 }
 
-function validatePgDumpPath(executable: string): void {
+function validatePgToolPath(executable: string, expectedName: 'pg_dump' | 'pg_restore'): void {
   if (!executable || executable.includes('\0')) {
-    throw new LocalBackupError('INVALID_BACKUP_CONFIG', 'pg_dump yolu gecersiz.');
+    throw new LocalBackupError('INVALID_BACKUP_CONFIG', `${expectedName} yolu gecersiz.`);
   }
   const executableName = path.basename(executable).toLowerCase();
-  if (executableName !== 'pg_dump' && executableName !== 'pg_dump.exe') {
-    throw new LocalBackupError('INVALID_BACKUP_CONFIG', 'Yedek araci pg_dump olmalidir.');
+  if (executableName !== expectedName && executableName !== `${expectedName}.exe`) {
+    throw new LocalBackupError('INVALID_BACKUP_CONFIG', `Yedek araci ${expectedName} olmalidir.`);
   }
 }
 
@@ -276,6 +459,17 @@ function pgDumpEnvironment(connection: PostgresConnectionOptions): NodeJS.Proces
   return result;
 }
 
+function pgRestoreEnvironment(): NodeJS.ProcessEnv {
+  const result = pgDumpEnvironment({
+    host: 'unused',
+    port: 5432,
+    user: 'unused',
+    database: 'unused',
+  });
+  result.PGAPPNAME = 'restotm-local-backup-verify';
+  return result;
+}
+
 function isPathInside(parent: string, child: string): boolean {
   const relative = path.relative(parent, child);
   return relative !== '' && !relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative);
@@ -303,6 +497,15 @@ async function ensureManagedDirectory(inputPath: string, create: boolean): Promi
   return canonicalPath;
 }
 
+async function storageVolumeIdentity(directory: string): Promise<string | null> {
+  if (process.platform === 'win32') {
+    const volumeRoot = path.parse(directory).root.replace(/[\\/]+$/, '').toUpperCase();
+    return volumeRoot ? `windows-volume:${volumeRoot}` : null;
+  }
+  const entry = await stat(directory);
+  return Number.isSafeInteger(entry.dev) ? `posix-dev:${entry.dev}` : null;
+}
+
 function safeChildPath(root: string, fileName: string): string {
   if (path.basename(fileName) !== fileName || fileName.includes('\0')) {
     throw new LocalBackupError('UNSAFE_BACKUP_PATH', 'Guvenli olmayan yedek dosyasi adi.', 400);
@@ -314,23 +517,79 @@ function safeChildPath(root: string, fileName: string): string {
   return candidate;
 }
 
-function isBackupManifest(value: unknown): value is BackupManifest {
-  if (!value || typeof value !== 'object') return false;
-  const item = value as Partial<BackupManifest>;
-  return item.manifestVersion === MANIFEST_VERSION
-    && typeof item.id === 'string'
+function isBackupManifestFileName(fileName: string): boolean {
+  if (!fileName.endsWith('.manifest.json')) return false;
+  const backupFileName = fileName.slice(0, -'.manifest.json'.length);
+  return BACKUP_V1_FILE_PATTERN.test(backupFileName) || BACKUP_V2_FILE_PATTERN.test(backupFileName);
+}
+
+function isCanonicalBase64(value: unknown, expectedBytes: number): value is string {
+  if (typeof value !== 'string' || value.length === 0) return false;
+  try {
+    const decoded = Buffer.from(value, 'base64');
+    return decoded.length === expectedBytes && decoded.toString('base64') === value;
+  } catch {
+    return false;
+  }
+}
+
+function hasCommonManifestFields(item: Partial<BackupManifest>): boolean {
+  return typeof item.id === 'string'
     && BACKUP_ID_PATTERN.test(item.id)
     && item.format === 'pg_dump-custom'
     && (item.reason === 'manual' || item.reason === 'scheduled')
     && typeof item.createdAt === 'string'
     && Number.isFinite(Date.parse(item.createdAt))
     && typeof item.fileName === 'string'
-    && BACKUP_FILE_PATTERN.test(item.fileName)
     && typeof item.sizeBytes === 'number'
     && Number.isSafeInteger(item.sizeBytes)
-    && item.sizeBytes > 0
-    && typeof item.sha256 === 'string'
-    && /^[0-9a-f]{64}$/i.test(item.sha256);
+    && item.sizeBytes > 0;
+}
+
+function isBackupManifest(value: unknown): value is BackupManifest {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<BackupManifest>;
+  if (!hasCommonManifestFields(item)) return false;
+  if (item.manifestVersion === 1) {
+    const legacy = item as Partial<BackupManifestV1>;
+    return BACKUP_V1_FILE_PATTERN.test(legacy.fileName ?? '')
+      && typeof legacy.sha256 === 'string'
+      && /^[0-9a-f]{64}$/i.test(legacy.sha256);
+  }
+  if (item.manifestVersion !== MANIFEST_VERSION) return false;
+  const current = item as Partial<BackupManifestV2>;
+  return BACKUP_V2_FILE_PATTERN.test(current.fileName ?? '')
+    && typeof current.plainSizeBytes === 'number'
+    && Number.isSafeInteger(current.plainSizeBytes)
+    && current.plainSizeBytes > 0
+    && typeof current.cipherSha256 === 'string'
+    && /^[0-9a-f]{64}$/i.test(current.cipherSha256)
+    && current.encryption?.algorithm === 'aes-256-gcm'
+    && typeof current.encryption.keyId === 'string'
+    && BACKUP_KEY_ID_PATTERN.test(current.encryption.keyId)
+    && isCanonicalBase64(current.encryption.ivBase64, AES_GCM_IV_BYTES)
+    && isCanonicalBase64(current.encryption.authTagBase64, AES_GCM_TAG_BYTES);
+}
+
+export function backupStoredSha256(manifest: BackupManifest): string {
+  return manifest.manifestVersion === 1 ? manifest.sha256 : manifest.cipherSha256;
+}
+
+function backupAuthenticatedData(manifest: Pick<BackupManifestV2,
+  'manifestVersion' | 'id' | 'format' | 'reason' | 'createdAt' | 'fileName'
+> & { encryption: Pick<BackupManifestV2['encryption'], 'algorithm' | 'keyId'> }): Buffer {
+  return Buffer.from(JSON.stringify({
+    manifestVersion: manifest.manifestVersion,
+    id: manifest.id,
+    format: manifest.format,
+    reason: manifest.reason,
+    createdAt: manifest.createdAt,
+    fileName: manifest.fileName,
+    encryption: {
+      algorithm: manifest.encryption.algorithm,
+      keyId: manifest.encryption.keyId,
+    },
+  }), 'utf8');
 }
 
 async function sha256File(filePath: string): Promise<string> {
@@ -342,6 +601,17 @@ async function sha256File(filePath: string): Promise<string> {
     stream.once('end', resolve);
   });
   return hash.digest('hex');
+}
+
+async function createSecureTemporaryDirectory(prefix: string): Promise<string> {
+  const directory = await mkdtemp(path.join(os.tmpdir(), prefix));
+  await chmod(directory, 0o700);
+  const entry = await lstat(directory);
+  if (!entry.isDirectory() || entry.isSymbolicLink()) {
+    await rm(directory, { recursive: true, force: true }).catch(() => undefined);
+    throw new LocalBackupError('UNSAFE_BACKUP_PATH', 'Guvenli gecici yedek dizini olusturulamadi.');
+  }
+  return realpath(directory);
 }
 
 function timestampForFile(date: Date): string {
@@ -389,27 +659,64 @@ function selectRetentionSet(
 
 export class LocalBackupRuntime {
   private readonly retention: BackupRetentionPolicy;
+  private readonly externalRetention: BackupRetentionPolicy | null;
+  private readonly externalVolumePolicy: 'require-separate' | 'warn' | 'allow';
   private readonly processTimeoutMs: number;
   private readonly backupIntervalMs: number;
   private readonly schedulerPollMs: number;
   private readonly lockStaleMs: number;
+  private readonly restoreVerificationIntervalMs: number;
+  private readonly restoreVerificationRetryMs: number;
   private readonly clock: () => Date;
   private readonly pgDumpPath: string;
+  private readonly pgRestorePath: string;
+  private readonly encryptionKey: KeyObject;
+  private readonly encryptionKeyId: string;
+  private readonly config: Omit<LocalBackupConfig, 'encryptionKey'>;
   private dataRoot?: string;
   private backupRoot?: string;
+  private externalRoot?: string;
+  private externalVolumeSeparate: boolean | null = null;
+  private externalVolumeWarning: string | null = null;
   private initializing?: Promise<void>;
   private running = false;
+  private replicationRunning = false;
+  private restoreVerificationRunning = false;
+  private replicationState: ReplicationState = {
+    stateVersion: REPLICATION_STATE_VERSION,
+    pendingIds: [],
+    lastSuccess: null,
+    lastError: null,
+    lastRestoreVerification: null,
+    nextRestoreVerificationDueAt: null,
+  };
   private scheduler?: NodeJS.Timeout;
   private lastSuccess: BackupManifest | null = null;
   private lastError: { code: string; occurredAt: string } | null = null;
 
   constructor(
-    private readonly config: LocalBackupConfig,
+    config: LocalBackupConfig,
     private readonly processAdapter: BackupProcessAdapter = new ExecFileBackupProcessAdapter(),
+    private readonly restoreProcessAdapter: BackupProcessAdapter = new ExecFileRestoreProcessAdapter(),
   ) {
     validateConnection(config.connection);
     this.pgDumpPath = config.pgDumpPath ?? 'pg_dump';
-    validatePgDumpPath(this.pgDumpPath);
+    this.pgRestorePath = config.pgRestorePath ?? 'pg_restore';
+    validatePgToolPath(this.pgDumpPath, 'pg_dump');
+    validatePgToolPath(this.pgRestorePath, 'pg_restore');
+    if (config.encryptionKey.byteLength !== 32) {
+      throw new LocalBackupError('INVALID_BACKUP_KEY', 'Yedek sifreleme anahtari tam 32 byte olmalidir.');
+    }
+    if (!BACKUP_KEY_ID_PATTERN.test(config.encryptionKeyId)) {
+      throw new LocalBackupError('INVALID_BACKUP_KEY', 'Yedek sifreleme anahtari kimligi gecersiz.');
+    }
+    const keyMaterial = Buffer.from(config.encryptionKey);
+    this.encryptionKey = createSecretKey(keyMaterial);
+    keyMaterial.fill(0);
+    this.encryptionKeyId = config.encryptionKeyId;
+    const { encryptionKey: consumedKeyReference, ...nonSecretConfig } = config;
+    consumedKeyReference.fill(0);
+    this.config = nonSecretConfig;
     this.retention = {
       daily: retentionCount(config.retention?.daily, 7, 'retention.daily'),
       weekly: retentionCount(config.retention?.weekly, 4, 'retention.weekly'),
@@ -418,10 +725,63 @@ export class LocalBackupRuntime {
     if (this.retention.daily + this.retention.weekly + this.retention.monthly === 0) {
       throw new LocalBackupError('INVALID_BACKUP_CONFIG', 'En az bir retention sinifi etkin olmalidir.');
     }
+    this.externalVolumePolicy = config.externalVolumePolicy ?? 'warn';
+    if (!['require-separate', 'warn', 'allow'].includes(this.externalVolumePolicy)) {
+      throw new LocalBackupError('INVALID_BACKUP_CONFIG', 'Harici yedek volume politikasi gecersiz.');
+    }
+    this.externalRetention = config.externalBackupDir
+      ? {
+          daily: retentionCount(
+            config.externalRetention?.daily,
+            DEFAULT_EXTERNAL_RETENTION.daily,
+            'externalRetention.daily',
+          ),
+          weekly: retentionCount(
+            config.externalRetention?.weekly,
+            DEFAULT_EXTERNAL_RETENTION.weekly,
+            'externalRetention.weekly',
+          ),
+          monthly: retentionCount(
+            config.externalRetention?.monthly,
+            DEFAULT_EXTERNAL_RETENTION.monthly,
+            'externalRetention.monthly',
+          ),
+        }
+      : null;
+    if (this.externalRetention) {
+      const notShorter = this.externalRetention.daily >= this.retention.daily
+        && this.externalRetention.weekly >= this.retention.weekly
+        && this.externalRetention.monthly >= this.retention.monthly;
+      const strictlyLonger = this.externalRetention.daily + this.externalRetention.weekly
+        + this.externalRetention.monthly
+        > this.retention.daily + this.retention.weekly + this.retention.monthly;
+      if (!notShorter || !strictlyLonger) {
+        throw new LocalBackupError(
+          'INVALID_BACKUP_CONFIG',
+          'Harici retention her sinifta lokalden kisa olamaz ve toplamda daha uzun olmalidir.',
+        );
+      }
+    }
     this.processTimeoutMs = positiveDuration(config.processTimeoutMs, DEFAULT_PROCESS_TIMEOUT_MS, 'processTimeoutMs');
     this.backupIntervalMs = positiveDuration(config.backupIntervalMs, DEFAULT_BACKUP_INTERVAL_MS, 'backupIntervalMs');
     this.schedulerPollMs = positiveDuration(config.schedulerPollMs, DEFAULT_SCHEDULER_POLL_MS, 'schedulerPollMs');
     this.lockStaleMs = positiveDuration(config.lockStaleMs, DEFAULT_LOCK_STALE_MS, 'lockStaleMs');
+    this.restoreVerificationIntervalMs = positiveDuration(
+      config.restoreVerificationIntervalMs,
+      DEFAULT_RESTORE_VERIFICATION_INTERVAL_MS,
+      'restoreVerificationIntervalMs',
+    );
+    this.restoreVerificationRetryMs = positiveDuration(
+      config.restoreVerificationRetryMs,
+      DEFAULT_RESTORE_VERIFICATION_RETRY_MS,
+      'restoreVerificationRetryMs',
+    );
+    if (this.restoreVerificationRetryMs > this.restoreVerificationIntervalMs) {
+      throw new LocalBackupError(
+        'INVALID_BACKUP_CONFIG',
+        'Restore dogrulama retry araligi ana araliktan uzun olamaz.',
+      );
+    }
     if (this.lockStaleMs <= this.processTimeoutMs) {
       throw new LocalBackupError('INVALID_BACKUP_CONFIG', 'lockStaleMs, processTimeoutMs degerinden buyuk olmalidir.');
     }
@@ -429,7 +789,11 @@ export class LocalBackupRuntime {
   }
 
   async initialize(): Promise<void> {
-    if (this.dataRoot && this.backupRoot) return;
+    if (
+      this.dataRoot
+      && this.backupRoot
+      && (!this.config.externalBackupDir || this.externalRoot)
+    ) return;
     if (!this.initializing) {
       this.initializing = (async () => {
         const dataRoot = await ensureManagedDirectory(this.config.dataDir, false);
@@ -446,7 +810,34 @@ export class LocalBackupRuntime {
         }
         this.dataRoot = dataRoot;
         this.backupRoot = backupRoot;
-      })().finally(() => {
+        if (this.config.externalBackupDir) {
+          const externalRoot = await ensureManagedDirectory(this.config.externalBackupDir, true);
+          if (
+            externalRoot === dataRoot
+            || externalRoot === backupRoot
+            || isPathInside(dataRoot, externalRoot)
+            || isPathInside(externalRoot, dataRoot)
+            || isPathInside(backupRoot, externalRoot)
+            || isPathInside(externalRoot, backupRoot)
+          ) {
+            throw new LocalBackupError(
+              'BACKUP_EXTERNAL_PATH_NOT_SEPARATE',
+              'Harici yedek dizini veri ve lokal yedek dizinlerinden ayri olmalidir.',
+            );
+          }
+
+          this.externalRoot = externalRoot;
+          await this.refreshExternalVolumeAssessment();
+        }
+        await this.loadAndReconcileReplicationState();
+      })().catch((error) => {
+        this.dataRoot = undefined;
+        this.backupRoot = undefined;
+        this.externalRoot = undefined;
+        this.externalVolumeSeparate = null;
+        this.externalVolumeWarning = null;
+        throw error;
+      }).finally(() => {
         this.initializing = undefined;
       });
     }
@@ -455,29 +846,33 @@ export class LocalBackupRuntime {
 
   async createBackup(reason: BackupReason = 'manual'): Promise<BackupManifest> {
     await this.initialize();
-    if (this.running) throw new BackupAlreadyRunningError();
+    if (this.running || this.restoreVerificationRunning) throw new BackupAlreadyRunningError();
     this.running = true;
 
     let heldLock: HeldBackupLock | undefined;
-    let partialPath: string | undefined;
+    let cipherPartialPath: string | undefined;
     let manifestPartialPath: string | undefined;
     let unpublishedFinalPath: string | undefined;
+    let workDirectory: string | undefined;
     try {
       heldLock = await this.acquireLock();
       const root = this.requireBackupRoot();
       const createdAt = this.clock();
       const id = randomUUID();
-      const fileName = `restotm-${timestampForFile(createdAt)}-${id}.dump`;
+      const fileName = `restotm-${timestampForFile(createdAt)}-${id}.dump.enc`;
       const finalPath = safeChildPath(root, fileName);
-      partialPath = safeChildPath(root, `${fileName}.partial`);
+      cipherPartialPath = safeChildPath(root, `${fileName}.partial`);
       const manifestName = `${fileName}.manifest.json`;
       const manifestPath = safeChildPath(root, manifestName);
       manifestPartialPath = safeChildPath(root, `${manifestName}.partial`);
 
-      // wx ile isim rezerve edilir. Dizin 0700, dosya 0600'dur; pg_dump
-      // yalniz bu normal dosyayi acar ve olasi symlink yarisi daraltilir.
-      const reservation = await open(partialPath, 'wx', 0o600);
-      await reservation.close();
+      // Plaintext hicbir zaman yonetilen backup kokunde yayinlanmaz. pg_dump
+      // yalniz OS temp altindaki 0700 calisma dizisinde 0600 bir dosyaya
+      // yazar; bu dosya ayni islemde stream edilerek sifrelenir ve silinir.
+      workDirectory = await createSecureTemporaryDirectory('restotm-backup-work-');
+      const plainPath = safeChildPath(workDirectory, 'source.dump');
+      const plainReservation = await open(plainPath, 'wx', 0o600);
+      await plainReservation.close();
 
       const connection = this.config.connection;
       const args = [
@@ -486,7 +881,7 @@ export class LocalBackupRuntime {
         '--no-owner',
         '--no-privileges',
         '--no-password',
-        '--file', partialPath,
+        '--file', plainPath,
         '--host', connection.host,
         '--port', String(connection.port),
         '--username', connection.user,
@@ -495,30 +890,69 @@ export class LocalBackupRuntime {
       const processEnv = pgDumpEnvironment(connection);
 
       await this.processAdapter.run(this.pgDumpPath, args, {
-        cwd: root,
+        cwd: workDirectory,
         env: processEnv,
         timeoutMs: this.processTimeoutMs,
       });
 
-      const dumpEntry = await lstat(partialPath);
+      const dumpEntry = await lstat(plainPath);
       if (!dumpEntry.isFile() || dumpEntry.isSymbolicLink() || dumpEntry.size < 1) {
         throw new LocalBackupError('INVALID_BACKUP_OUTPUT', 'pg_dump gecerli bir yedek dosyasi uretmedi.');
       }
-      await chmod(partialPath, 0o600);
-      const dumpHandle = await open(partialPath, 'r');
+      await chmod(plainPath, 0o600);
+      const dumpHandle = await open(plainPath, 'r');
       await dumpHandle.sync();
       await dumpHandle.close();
 
-      const manifest: BackupManifest = {
-        manifestVersion: MANIFEST_VERSION,
+      const iv = randomBytes(AES_GCM_IV_BYTES);
+      const manifestBase = {
+        manifestVersion: 2 as const,
         id,
-        format: 'pg_dump-custom',
+        format: 'pg_dump-custom' as const,
         reason,
         createdAt: createdAt.toISOString(),
         fileName,
-        sizeBytes: dumpEntry.size,
-        sha256: await sha256File(partialPath),
+        encryption: {
+          algorithm: 'aes-256-gcm' as const,
+          keyId: this.encryptionKeyId,
+        },
       };
+      const cipher = createCipheriv('aes-256-gcm', this.encryptionKey, iv);
+      cipher.setAAD(backupAuthenticatedData(manifestBase));
+      const cipherHash = createHash('sha256');
+      cipher.on('data', (chunk: Buffer) => cipherHash.update(chunk));
+      const cipherHandle = await open(cipherPartialPath, 'wx', 0o600);
+      try {
+        await pipeline(
+          createReadStream(plainPath),
+          cipher,
+          cipherHandle.createWriteStream(),
+        );
+      } finally {
+        await cipherHandle.close().catch(() => undefined);
+      }
+
+      const cipherEntry = await lstat(cipherPartialPath);
+      if (!cipherEntry.isFile() || cipherEntry.isSymbolicLink() || cipherEntry.size < 1) {
+        throw new LocalBackupError('INVALID_BACKUP_OUTPUT', 'Sifreli yedek dosyasi olusturulamadi.');
+      }
+      const cipherSyncHandle = await open(cipherPartialPath, 'r');
+      await cipherSyncHandle.sync();
+      await cipherSyncHandle.close();
+      const manifest: BackupManifestV2 = {
+        ...manifestBase,
+        sizeBytes: dumpEntry.size,
+        plainSizeBytes: dumpEntry.size,
+        cipherSha256: cipherHash.digest('hex'),
+        encryption: {
+          ...manifestBase.encryption,
+          ivBase64: iv.toString('base64'),
+          authTagBase64: cipher.getAuthTag().toString('base64'),
+        },
+      };
+      // GCM ciphertext uzunlugu plaintext ile aynidir; yine de gercek dosya
+      // boyutunu kaydederek algoritma ayrintisina bagimli varsayim yapmayiz.
+      manifest.sizeBytes = cipherEntry.size;
 
       await writeFile(manifestPartialPath, `${JSON.stringify(manifest, null, 2)}\n`, {
         encoding: 'utf8',
@@ -531,8 +965,8 @@ export class LocalBackupRuntime {
 
       // Ayni dosya sistemindeki rename atomiktir. Manifest en son yayina
       // girer; listeleyiciler yarim veya manifestsiz yedegi gormez.
-      await rename(partialPath, finalPath);
-      partialPath = undefined;
+      await rename(cipherPartialPath, finalPath);
+      cipherPartialPath = undefined;
       unpublishedFinalPath = finalPath;
       await rename(manifestPartialPath, manifestPath);
       manifestPartialPath = undefined;
@@ -541,6 +975,9 @@ export class LocalBackupRuntime {
 
       this.lastSuccess = manifest;
       this.lastError = null;
+      if (this.externalRoot) {
+        await this.enqueueAndReplicate(manifest);
+      }
       try {
         await this.applyRetention();
       } catch {
@@ -555,11 +992,12 @@ export class LocalBackupRuntime {
         ? error
         : new LocalBackupError('BACKUP_FAILED', 'Yerel yedek olusturulamadi.');
       this.lastError = { code: localError.code, occurredAt: this.clock().toISOString() };
-      if (partialPath) await unlink(partialPath).catch(() => undefined);
+      if (cipherPartialPath) await unlink(cipherPartialPath).catch(() => undefined);
       if (manifestPartialPath) await unlink(manifestPartialPath).catch(() => undefined);
       if (unpublishedFinalPath) await unlink(unpublishedFinalPath).catch(() => undefined);
       throw localError;
     } finally {
+      if (workDirectory) await rm(workDirectory, { recursive: true, force: true }).catch(() => undefined);
       await heldLock?.release().catch(() => undefined);
       this.running = false;
     }
@@ -573,6 +1011,18 @@ export class LocalBackupRuntime {
   async getStatus(): Promise<LocalBackupStatus> {
     await this.initialize();
     const scan = await this.scanBackups();
+    const nextDueAt = this.replicationState.nextRestoreVerificationDueAt
+      ?? this.clock().toISOString();
+    const restoreRecord = this.replicationState.lastRestoreVerification;
+    const restoreAlarm: 'NONE' | 'WARNING' | 'ERROR' = restoreRecord?.status === 'FAILED'
+      ? 'ERROR'
+      : restoreRecord?.external === 'FAILED'
+        ? 'ERROR'
+        : restoreRecord?.external === 'NOT_AVAILABLE'
+          ? 'WARNING'
+          : this.clock().getTime() >= Date.parse(nextDueAt) && !this.restoreVerificationRunning
+            ? 'WARNING'
+            : 'NONE';
     return {
       running: this.running,
       schedulerRunning: Boolean(this.scheduler),
@@ -581,6 +1031,41 @@ export class LocalBackupRuntime {
       lastSuccess: this.lastSuccess ?? scan.backups[0] ?? null,
       lastError: this.lastError,
       retention: { ...this.retention },
+      externalReplication: {
+        configured: Boolean(this.externalRoot),
+        running: this.replicationRunning,
+        healthy: !this.externalRoot || Boolean(
+          this.replicationState.pendingIds.length === 0
+          && !this.replicationState.lastError
+          && !this.externalVolumeWarning,
+        ),
+        alarm: !this.externalRoot
+          ? 'NONE'
+          : this.replicationState.lastError || this.replicationState.pendingIds.length > 0
+            ? 'ERROR'
+            : this.externalVolumeWarning
+              ? 'WARNING'
+              : 'NONE',
+        pendingCount: this.replicationState.pendingIds.length,
+        lastSuccess: this.replicationState.lastSuccess,
+        lastError: this.replicationState.lastError,
+        volume: {
+          policy: this.externalVolumePolicy,
+          separate: this.externalVolumeSeparate,
+          warningCode: this.externalVolumeWarning,
+          acceptanceRequired: Boolean(this.externalVolumeWarning),
+        },
+        retention: this.externalRetention ? { ...this.externalRetention } : null,
+      },
+      restoreVerification: {
+        running: this.restoreVerificationRunning,
+        lastRestoreVerification: restoreRecord,
+        nextDueAt,
+        alarm: restoreAlarm,
+        intervalMs: this.restoreVerificationIntervalMs,
+        retryMs: this.restoreVerificationRetryMs,
+        licenseGatePolicy: 'RECOVERY_MAINTENANCE_ALWAYS',
+      },
     };
   }
 
@@ -598,19 +1083,276 @@ export class LocalBackupRuntime {
       throw new LocalBackupError('BACKUP_INTEGRITY_FAILED', 'Yedek dosyasi butunluk kontrolunden gecemedi.', 409);
     }
     const digest = await sha256File(filePath);
-    if (digest !== backup.sha256) {
+    if (digest !== backupStoredSha256(backup)) {
       throw new LocalBackupError('BACKUP_INTEGRITY_FAILED', 'Yedek dosyasi butunluk kontrolunden gecemedi.', 409);
     }
     return { manifest: backup, absolutePath: filePath };
   }
 
+  /**
+   * Yedegi gecici 0600 plaintext dosyasina acar ve pg_restore --list ile
+   * arsiv yapisini dogrular. Veritabanina baglanmaz, destructive restore
+   * yapmaz ve gecici dosyayi sonuc ne olursa olsun siler.
+   */
+  async verifyRestoreCandidate(id: string): Promise<BackupRestoreVerification> {
+    await this.initialize();
+    if (this.running || this.restoreVerificationRunning) throw new BackupAlreadyRunningError();
+    this.restoreVerificationRunning = true;
+    let heldLock: HeldBackupLock | undefined;
+    try {
+      heldLock = await this.acquireLock();
+      return await this.verifyRestoreDownload(await this.getVerifiedDownload(id));
+    } finally {
+      await heldLock?.release().catch(() => undefined);
+      this.restoreVerificationRunning = false;
+    }
+  }
+
+  async runRestoreVerificationIfDue(force = false): Promise<RestoreVerificationRecord | null> {
+    await this.initialize();
+    const dueAt = Date.parse(
+      this.replicationState.nextRestoreVerificationDueAt ?? this.clock().toISOString(),
+    );
+    if (!force && this.clock().getTime() < dueAt) return null;
+    if (this.running || this.restoreVerificationRunning) return null;
+
+    this.restoreVerificationRunning = true;
+    let heldLock: HeldBackupLock | undefined;
+    try {
+      heldLock = await this.acquireLock();
+      const newest = (await this.scanBackups()).backups.find((backup) => (
+        backup.manifestVersion === MANIFEST_VERSION
+      )) as BackupManifestV2 | undefined;
+      if (!newest) {
+        return await this.recordRestoreVerificationFailure(
+          null,
+          'BACKUP_RESTORE_DRILL_NO_V2_BACKUP',
+          'NOT_AVAILABLE',
+          this.externalRoot ? 'NOT_AVAILABLE' : 'NOT_CONFIGURED',
+        );
+      }
+
+      try {
+        await this.verifyRestoreDownload(await this.getVerifiedDownload(newest.id));
+      } catch (error) {
+        const code = error instanceof LocalBackupError ? error.code : 'BACKUP_RESTORE_DRILL_FAILED';
+        return await this.recordRestoreVerificationFailure(
+          newest.id,
+          code,
+          'FAILED',
+          this.externalRoot ? 'NOT_AVAILABLE' : 'NOT_CONFIGURED',
+        );
+      }
+
+      let external: RestoreVerificationRecord['external'] = this.externalRoot
+        ? 'NOT_AVAILABLE'
+        : 'NOT_CONFIGURED';
+      if (this.externalRoot) {
+        try {
+          const externalManifest = (await this.scanBackupsAt(this.externalRoot)).backups
+            .find((backup) => backup.id === newest.id);
+          if (externalManifest?.manifestVersion === MANIFEST_VERSION) {
+            const externalDownload = await this.getVerifiedDownloadAt(
+              this.externalRoot,
+              externalManifest,
+            );
+            await this.verifyRestoreDownload(externalDownload);
+            external = 'VERIFIED';
+          } else {
+            const expectedCipher = await lstat(
+              safeChildPath(this.externalRoot, newest.fileName),
+            ).catch(() => undefined);
+            const expectedManifest = await lstat(
+              safeChildPath(this.externalRoot, `${newest.fileName}.manifest.json`),
+            ).catch(() => undefined);
+            if (expectedCipher || expectedManifest) {
+              throw new LocalBackupError(
+                'BACKUP_EXTERNAL_RESTORE_DRILL_INVALID',
+                'Harici restore drill adayi eksik veya gecersiz.',
+              );
+            }
+          }
+        } catch (error) {
+          if (error instanceof LocalBackupError) {
+            return await this.recordRestoreVerificationFailure(
+              newest.id,
+              error.code.startsWith('BACKUP_EXTERNAL_')
+                ? error.code
+                : 'BACKUP_EXTERNAL_RESTORE_DRILL_FAILED',
+              'VERIFIED',
+              'FAILED',
+            );
+          }
+          external = 'NOT_AVAILABLE';
+        }
+      }
+      return await this.recordRestoreVerificationSuccess(newest.id, external);
+    } finally {
+      await heldLock?.release().catch(() => undefined);
+      this.restoreVerificationRunning = false;
+    }
+  }
+
+  private async verifyRestoreDownload(verified: BackupDownload): Promise<BackupRestoreVerification> {
+    let workDirectory: string | undefined;
+    try {
+      workDirectory = await createSecureTemporaryDirectory('restotm-restore-verify-');
+      const plainPath = safeChildPath(workDirectory, 'candidate.dump');
+      const plainHandle = await open(plainPath, 'wx', 0o600);
+      try {
+        if (verified.manifest.manifestVersion === 1) {
+          await pipeline(
+            createReadStream(verified.absolutePath),
+            plainHandle.createWriteStream(),
+          );
+        } else {
+          if (verified.manifest.encryption.keyId !== this.encryptionKeyId) {
+            throw new LocalBackupError(
+              'BACKUP_KEY_UNAVAILABLE',
+              'Yedek icin gereken sifreleme anahtari bu kurulumda acik degil.',
+              409,
+            );
+          }
+          const decipher = createDecipheriv(
+            'aes-256-gcm',
+            this.encryptionKey,
+            Buffer.from(verified.manifest.encryption.ivBase64, 'base64'),
+          );
+          decipher.setAAD(backupAuthenticatedData(verified.manifest));
+          decipher.setAuthTag(Buffer.from(verified.manifest.encryption.authTagBase64, 'base64'));
+          try {
+            await pipeline(
+              createReadStream(verified.absolutePath),
+              decipher,
+              plainHandle.createWriteStream(),
+            );
+          } catch {
+            throw new LocalBackupError(
+              'BACKUP_DECRYPTION_FAILED',
+              'Yedek sifre cozumleme ve kimlik dogrulamasindan gecemedi.',
+              409,
+            );
+          }
+        }
+      } finally {
+        await plainHandle.close().catch(() => undefined);
+      }
+
+      const plainEntry = await lstat(plainPath);
+      if (!plainEntry.isFile() || plainEntry.isSymbolicLink() || plainEntry.size < 1) {
+        throw new LocalBackupError('BACKUP_ARCHIVE_INVALID', 'Yedek arsivi gecersiz.', 409);
+      }
+      if (
+        verified.manifest.manifestVersion === 2
+        && plainEntry.size !== verified.manifest.plainSizeBytes
+      ) {
+        throw new LocalBackupError('BACKUP_INTEGRITY_FAILED', 'Yedek boyutu dogrulanamadi.', 409);
+      }
+
+      await this.restoreProcessAdapter.run(this.pgRestorePath, ['--list', plainPath], {
+        cwd: workDirectory,
+        env: pgRestoreEnvironment(),
+        timeoutMs: this.processTimeoutMs,
+      });
+      return {
+        manifest: verified.manifest,
+        plainSizeBytes: plainEntry.size,
+        verifiedAt: this.clock().toISOString(),
+      };
+    } catch (error) {
+      if (error instanceof LocalBackupError) throw error;
+      throw new LocalBackupError('BACKUP_VERIFY_FAILED', 'Yedek geri yukleme icin dogrulanamadi.', 409);
+    } finally {
+      if (workDirectory) await rm(workDirectory, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
+  private async getVerifiedDownloadAt(
+    root: string,
+    manifest: BackupManifest,
+  ): Promise<BackupDownload> {
+    const filePath = safeChildPath(root, manifest.fileName);
+    const entry = await lstat(filePath).catch(() => undefined);
+    if (!entry?.isFile() || entry.isSymbolicLink() || entry.size !== manifest.sizeBytes) {
+      throw new LocalBackupError(
+        'BACKUP_EXTERNAL_INTEGRITY_FAILED',
+        'Harici restore drill yedegi butunluk kontrolunden gecemedi.',
+        409,
+      );
+    }
+    if (await sha256File(filePath) !== backupStoredSha256(manifest)) {
+      throw new LocalBackupError(
+        'BACKUP_EXTERNAL_INTEGRITY_FAILED',
+        'Harici restore drill yedegi butunluk kontrolunden gecemedi.',
+        409,
+      );
+    }
+    return { manifest, absolutePath: filePath };
+  }
+
+  private async recordRestoreVerificationSuccess(
+    backupId: string,
+    external: RestoreVerificationRecord['external'],
+  ): Promise<RestoreVerificationRecord> {
+    const now = this.clock();
+    const record: RestoreVerificationRecord = {
+      status: 'SUCCESS',
+      backupId,
+      verifiedAt: now.toISOString(),
+      local: 'VERIFIED',
+      external,
+      code: null,
+    };
+    this.replicationState.lastRestoreVerification = record;
+    this.replicationState.nextRestoreVerificationDueAt = new Date(
+      now.getTime() + this.restoreVerificationIntervalMs,
+    ).toISOString();
+    if (
+      this.lastError?.code.startsWith('BACKUP_RESTORE_DRILL_')
+      || this.lastError?.code.startsWith('BACKUP_EXTERNAL_RESTORE_DRILL_')
+    ) this.lastError = null;
+    await this.persistReplicationStateBestEffort();
+    return record;
+  }
+
+  private async recordRestoreVerificationFailure(
+    backupId: string | null,
+    code: string,
+    local: RestoreVerificationRecord['local'],
+    external: RestoreVerificationRecord['external'],
+  ): Promise<RestoreVerificationRecord> {
+    const now = this.clock();
+    const record: RestoreVerificationRecord = {
+      status: 'FAILED',
+      backupId,
+      verifiedAt: now.toISOString(),
+      local,
+      external,
+      code,
+    };
+    this.replicationState.lastRestoreVerification = record;
+    this.replicationState.nextRestoreVerificationDueAt = new Date(
+      now.getTime() + this.restoreVerificationRetryMs,
+    ).toISOString();
+    this.lastError = { code, occurredAt: now.toISOString() };
+    await this.persistReplicationStateBestEffort();
+    return record;
+  }
+
   async applyRetention(): Promise<void> {
     await this.initialize();
     const backups = (await this.scanBackups()).backups;
-    const keep = selectRetentionSet(backups, this.retention);
+    // v1 yalniz geriye donuk salt-okumadir. Yeni retention politikasi eski
+    // plaintext arsivleri otomatik olarak degistirmez veya silmez.
+    const currentBackups = backups.filter((backup): backup is BackupManifestV2 => (
+      backup.manifestVersion === MANIFEST_VERSION
+    ));
+    const keep = selectRetentionSet(currentBackups, this.retention);
     const root = this.requireBackupRoot();
 
     for (const backup of backups) {
+      if (backup.manifestVersion === 1) continue;
+      if (this.replicationState.pendingIds.includes(backup.id)) continue;
       if (keep.has(backup.id)) continue;
       const manifestPath = safeChildPath(root, `${backup.fileName}.manifest.json`);
       const dumpPath = safeChildPath(root, backup.fileName);
@@ -625,11 +1367,40 @@ export class LocalBackupRuntime {
   startScheduler(): void {
     if (this.scheduler) return;
     const tick = (): void => {
-      void this.runScheduledIfDue().catch(() => undefined);
+      void this.runMaintenanceTick().catch(() => undefined);
     };
     tick();
     this.scheduler = setInterval(tick, this.schedulerPollMs);
     this.scheduler.unref?.();
+  }
+
+  async retryExternalReplication(): Promise<void> {
+    await this.initialize();
+    if (!this.externalRoot || this.replicationRunning || this.running) return;
+    this.replicationRunning = true;
+    try {
+      for (const id of [...this.replicationState.pendingIds]) {
+        const manifest = await this.findManifestById(id);
+        if (!manifest || manifest.manifestVersion !== MANIFEST_VERSION) {
+          await this.recordReplicationFailure('BACKUP_REPLICATION_SOURCE_MISSING');
+          continue;
+        }
+        try {
+          await this.replicateManifest(manifest);
+          await this.recordReplicationSuccess(manifest.id);
+        } catch (error) {
+          const code = error instanceof LocalBackupError
+            ? error.code
+            : 'BACKUP_REPLICATION_FAILED';
+          await this.recordReplicationFailure(code);
+        }
+      }
+      await this.applyExternalRetention().catch(async () => {
+        await this.recordReplicationFailure('BACKUP_EXTERNAL_RETENTION_FAILED');
+      });
+    } finally {
+      this.replicationRunning = false;
+    }
   }
 
   stopScheduler(): void {
@@ -639,21 +1410,280 @@ export class LocalBackupRuntime {
   }
 
   private async runScheduledIfDue(): Promise<void> {
-    if (this.running) return;
+    if (this.running || this.restoreVerificationRunning) return;
     const backups = await this.listBackups();
     const newest = backups[0];
     if (newest && this.clock().getTime() - Date.parse(newest.createdAt) < this.backupIntervalMs) return;
     await this.createBackup('scheduled');
   }
 
-  private async scanBackups(): Promise<BackupScanResult> {
+  private async runMaintenanceTick(): Promise<void> {
+    await this.runScheduledIfDue().catch(() => undefined);
+    await this.retryExternalReplication().catch(() => undefined);
+    await this.runRestoreVerificationIfDue().catch(() => undefined);
+  }
+
+  private async loadAndReconcileReplicationState(): Promise<void> {
     const root = this.requireBackupRoot();
+    const statePath = safeChildPath(root, REPLICATION_STATE_FILE);
+    try {
+      const entry = await lstat(statePath);
+      if (!entry.isFile() || entry.isSymbolicLink() || entry.size > 64 * 1024) {
+        throw new LocalBackupError('BACKUP_REPLICATION_STATE_INVALID', 'Replikasyon durumu gecersiz.');
+      }
+      const parsed: unknown = JSON.parse(await readFile(statePath, 'utf8'));
+      if (!isReplicationState(parsed)) {
+        throw new LocalBackupError('BACKUP_REPLICATION_STATE_INVALID', 'Replikasyon durumu gecersiz.');
+      }
+      this.replicationState = {
+        ...parsed,
+        lastRestoreVerification: parsed.lastRestoreVerification ?? null,
+        nextRestoreVerificationDueAt: parsed.nextRestoreVerificationDueAt ?? null,
+      };
+    } catch (error) {
+      const fsError = error as NodeJS.ErrnoException;
+      if (fsError.code !== 'ENOENT') {
+        this.replicationState.lastError = {
+          code: error instanceof LocalBackupError ? error.code : 'BACKUP_REPLICATION_STATE_INVALID',
+          occurredAt: this.clock().toISOString(),
+        };
+      }
+    }
+
+    const localBackups = (await this.scanBackupsAt(root)).backups
+      .filter((backup): backup is BackupManifestV2 => backup.manifestVersion === MANIFEST_VERSION);
+    const localIds = new Set(localBackups.map((backup) => backup.id));
+    const externalIds = this.externalRoot
+      ? new Set(
+          (await this.scanBackupsAt(this.externalRoot)).backups
+            .filter((backup): backup is BackupManifestV2 => backup.manifestVersion === MANIFEST_VERSION)
+            .map((backup) => backup.id),
+        )
+      : new Set<string>();
+    const pending = new Set(
+      this.externalRoot
+        ? this.replicationState.pendingIds.filter((id) => localIds.has(id))
+        : [],
+    );
+    if (this.externalRoot) {
+      for (const backup of localBackups) {
+        if (!externalIds.has(backup.id)) pending.add(backup.id);
+      }
+    }
+    this.replicationState.pendingIds = [...pending];
+    if (!this.replicationState.nextRestoreVerificationDueAt) {
+      this.replicationState.nextRestoreVerificationDueAt = this.clock().toISOString();
+    }
+    await this.persistReplicationStateBestEffort();
+  }
+
+  private async refreshExternalVolumeAssessment(): Promise<void> {
+    const externalRoot = this.requireExternalRoot();
+    let canonicalExternalRoot: string;
+    try {
+      canonicalExternalRoot = await ensureManagedDirectory(externalRoot, false);
+    } catch {
+      throw new LocalBackupError('BACKUP_EXTERNAL_UNAVAILABLE', 'Harici yedek hedefi kullanilamiyor.');
+    }
+    if (canonicalExternalRoot !== externalRoot || !this.dataRoot || !this.backupRoot) {
+      throw new LocalBackupError('BACKUP_EXTERNAL_PATH_CHANGED', 'Harici yedek hedefinin guvenli yolu degisti.');
+    }
+    const [dataVolume, backupVolume, externalVolume] = await Promise.all([
+      storageVolumeIdentity(this.dataRoot),
+      storageVolumeIdentity(this.backupRoot),
+      storageVolumeIdentity(externalRoot),
+    ]);
+    this.externalVolumeSeparate = dataVolume && backupVolume && externalVolume
+      ? externalVolume !== backupVolume && externalVolume !== dataVolume
+      : null;
+    this.externalVolumeWarning = null;
+    if (this.externalVolumeSeparate === true) return;
+
+    const code = this.externalVolumeSeparate === false
+      ? 'BACKUP_EXTERNAL_SAME_VOLUME'
+      : 'BACKUP_EXTERNAL_VOLUME_UNKNOWN';
+    if (this.externalVolumePolicy === 'require-separate') {
+      throw new LocalBackupError(
+        code,
+        'Harici yedek hedefinin ayri fiziksel volume oldugu dogrulanamadi.',
+      );
+    }
+    if (this.externalVolumePolicy === 'warn') this.externalVolumeWarning = code;
+  }
+
+  private async enqueueAndReplicate(manifest: BackupManifestV2): Promise<void> {
+    if (!this.replicationState.pendingIds.includes(manifest.id)) {
+      this.replicationState.pendingIds.push(manifest.id);
+    }
+    await this.persistReplicationStateBestEffort();
+    this.replicationRunning = true;
+    try {
+      await this.replicateManifest(manifest);
+      await this.recordReplicationSuccess(manifest.id);
+      await this.applyExternalRetention().catch(async () => {
+        await this.recordReplicationFailure('BACKUP_EXTERNAL_RETENTION_FAILED');
+      });
+    } catch (error) {
+      const code = error instanceof LocalBackupError ? error.code : 'BACKUP_REPLICATION_FAILED';
+      await this.recordReplicationFailure(code);
+    } finally {
+      this.replicationRunning = false;
+    }
+  }
+
+  private async recordReplicationSuccess(id: string): Promise<void> {
+    this.replicationState.pendingIds = this.replicationState.pendingIds.filter((pendingId) => pendingId !== id);
+    this.replicationState.lastSuccess = { id, occurredAt: this.clock().toISOString() };
+    if (this.replicationState.pendingIds.length === 0) {
+      this.replicationState.lastError = null;
+      if (
+        this.lastError?.code.startsWith('BACKUP_REPLICATION_')
+        || this.lastError?.code.startsWith('BACKUP_EXTERNAL_')
+      ) this.lastError = null;
+    }
+    await this.persistReplicationStateBestEffort();
+  }
+
+  private async recordReplicationFailure(code: string): Promise<void> {
+    const occurredAt = this.clock().toISOString();
+    this.replicationState.lastError = { code, occurredAt };
+    this.lastError = { code, occurredAt };
+    await this.persistReplicationStateBestEffort();
+  }
+
+  private async persistReplicationStateBestEffort(): Promise<void> {
+    try {
+      const root = this.requireBackupRoot();
+      const finalPath = safeChildPath(root, REPLICATION_STATE_FILE);
+      const partialName = `${REPLICATION_STATE_FILE}.${randomUUID()}.partial`;
+      const partialPath = safeChildPath(root, partialName);
+      await writeFile(partialPath, `${JSON.stringify(this.replicationState, null, 2)}\n`, {
+        encoding: 'utf8',
+        flag: 'wx',
+        mode: 0o600,
+      });
+      const handle = await open(partialPath, 'r');
+      await handle.sync();
+      await handle.close();
+      await rename(partialPath, finalPath);
+      await this.syncDirectoryBestEffort(root);
+    } catch {
+      this.replicationState.lastError = {
+        code: 'BACKUP_REPLICATION_STATE_WRITE_FAILED',
+        occurredAt: this.clock().toISOString(),
+      };
+    }
+  }
+
+  private async replicateManifest(manifest: BackupManifestV2): Promise<void> {
+    await this.refreshExternalVolumeAssessment();
+    const source = await this.getVerifiedDownload(manifest.id);
+    if (source.manifest.manifestVersion !== MANIFEST_VERSION) {
+      throw new LocalBackupError('BACKUP_REPLICATION_SOURCE_INVALID', 'Yalniz sifreli v2 yedekler replike edilir.');
+    }
+    if (JSON.stringify(source.manifest) !== JSON.stringify(manifest)) {
+      throw new LocalBackupError('BACKUP_REPLICATION_SOURCE_INVALID', 'Lokal manifest replikasyon adayi ile eslesmiyor.');
+    }
+    const root = this.requireExternalRoot();
+    const finalPath = safeChildPath(root, manifest.fileName);
+    const manifestPath = safeChildPath(root, `${manifest.fileName}.manifest.json`);
+    const cipherPartialPath = safeChildPath(root, `${manifest.fileName}.partial`);
+    const manifestPartialPath = safeChildPath(root, `${manifest.fileName}.manifest.json.partial`);
+    try {
+      await unlink(cipherPartialPath).catch(() => undefined);
+      await unlink(manifestPartialPath).catch(() => undefined);
+
+      const existingCipher = await lstat(finalPath).catch(() => undefined);
+      if (existingCipher) {
+        if (!existingCipher.isFile() || existingCipher.isSymbolicLink() || existingCipher.size !== manifest.sizeBytes) {
+          throw new LocalBackupError('BACKUP_EXTERNAL_CONFLICT', 'Harici yedek hedefinde cakisan dosya var.');
+        }
+        if (await sha256File(finalPath) !== manifest.cipherSha256) {
+          throw new LocalBackupError('BACKUP_EXTERNAL_INTEGRITY_FAILED', 'Harici yedek butunlugu gecersiz.');
+        }
+      } else {
+        const sourceStream = createReadStream(source.absolutePath);
+        const output = await open(cipherPartialPath, 'wx', 0o600);
+        try {
+          await pipeline(sourceStream, output.createWriteStream());
+        } finally {
+          await output.close().catch(() => undefined);
+        }
+        const copied = await lstat(cipherPartialPath);
+        if (
+          !copied.isFile()
+          || copied.isSymbolicLink()
+          || copied.size !== manifest.sizeBytes
+          || await sha256File(cipherPartialPath) !== manifest.cipherSha256
+        ) {
+          throw new LocalBackupError('BACKUP_EXTERNAL_INTEGRITY_FAILED', 'Harici yedek kopyasi dogrulanamadi.');
+        }
+        const syncHandle = await open(cipherPartialPath, 'r');
+        await syncHandle.sync();
+        await syncHandle.close();
+        await rename(cipherPartialPath, finalPath);
+      }
+
+      const existingManifest = await lstat(manifestPath).catch(() => undefined);
+      if (existingManifest) {
+        if (!existingManifest.isFile() || existingManifest.isSymbolicLink() || existingManifest.size > 64 * 1024) {
+          throw new LocalBackupError('BACKUP_EXTERNAL_CONFLICT', 'Harici manifest hedefinde cakisan dosya var.');
+        }
+        const parsed: unknown = JSON.parse(await readFile(manifestPath, 'utf8'));
+        if (
+          !isBackupManifest(parsed)
+          || parsed.manifestVersion !== MANIFEST_VERSION
+          || parsed.id !== manifest.id
+          || backupStoredSha256(parsed) !== manifest.cipherSha256
+          || JSON.stringify(parsed) !== JSON.stringify(manifest)
+        ) {
+          throw new LocalBackupError('BACKUP_EXTERNAL_CONFLICT', 'Harici manifest mevcut yedekle eslesmiyor.');
+        }
+      } else {
+        await writeFile(manifestPartialPath, `${JSON.stringify(manifest, null, 2)}\n`, {
+          encoding: 'utf8',
+          flag: 'wx',
+          mode: 0o600,
+        });
+        const manifestHandle = await open(manifestPartialPath, 'r');
+        await manifestHandle.sync();
+        await manifestHandle.close();
+        await rename(manifestPartialPath, manifestPath);
+      }
+      await this.syncDirectoryBestEffort(root);
+    } finally {
+      await unlink(cipherPartialPath).catch(() => undefined);
+      await unlink(manifestPartialPath).catch(() => undefined);
+    }
+  }
+
+  private async applyExternalRetention(): Promise<void> {
+    if (!this.externalRetention || !this.externalRoot) return;
+    await this.refreshExternalVolumeAssessment();
+    const backups = (await this.scanBackupsAt(this.externalRoot)).backups;
+    const current = backups.filter((backup): backup is BackupManifestV2 => (
+      backup.manifestVersion === MANIFEST_VERSION
+    ));
+    const keep = selectRetentionSet(current, this.externalRetention);
+    for (const backup of current) {
+      if (keep.has(backup.id)) continue;
+      await unlink(safeChildPath(this.externalRoot, `${backup.fileName}.manifest.json`)).catch(() => undefined);
+      await unlink(safeChildPath(this.externalRoot, backup.fileName)).catch(() => undefined);
+    }
+    await this.syncDirectoryBestEffort(this.externalRoot);
+  }
+
+  private async scanBackups(): Promise<BackupScanResult> {
+    return this.scanBackupsAt(this.requireBackupRoot());
+  }
+
+  private async scanBackupsAt(root: string): Promise<BackupScanResult> {
     const entries = await readdir(root, { withFileTypes: true });
     const backups: BackupManifest[] = [];
     let invalidEntryCount = 0;
 
     for (const entry of entries) {
-      if (!entry.name.endsWith('.dump.manifest.json')) continue;
+      if (!isBackupManifestFileName(entry.name)) continue;
       if (!entry.isFile() || entry.isSymbolicLink()) {
         invalidEntryCount += 1;
         continue;
@@ -690,7 +1720,7 @@ export class LocalBackupRuntime {
     const root = this.requireBackupRoot();
     const entries = await readdir(root, { withFileTypes: true });
     for (const entry of entries) {
-      if (!entry.name.endsWith('.dump.manifest.json') || !entry.isFile() || entry.isSymbolicLink()) continue;
+      if (!isBackupManifestFileName(entry.name) || !entry.isFile() || entry.isSymbolicLink()) continue;
       try {
         const manifestPath = safeChildPath(root, entry.name);
         const manifestEntry = await lstat(manifestPath);
@@ -749,9 +1779,20 @@ export class LocalBackupRuntime {
     return this.backupRoot;
   }
 
+  private requireExternalRoot(): string {
+    if (!this.externalRoot) {
+      throw new LocalBackupError('BACKUP_EXTERNAL_NOT_CONFIGURED', 'Harici yedek hedefi tanimli degil.');
+    }
+    return this.externalRoot;
+  }
+
   private async syncBackupDirectoryBestEffort(): Promise<void> {
+    await this.syncDirectoryBestEffort(this.requireBackupRoot());
+  }
+
+  private async syncDirectoryBestEffort(directory: string): Promise<void> {
     try {
-      const handle = await open(this.requireBackupRoot(), 'r');
+      const handle = await open(directory, 'r');
       await handle.sync();
       await handle.close();
     } catch {

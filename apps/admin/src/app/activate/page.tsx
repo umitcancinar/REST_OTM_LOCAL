@@ -264,6 +264,20 @@ export default function ActivatePage() {
     return () => controller.abort();
   }, [loadStatus]);
 
+  useEffect(() => {
+    if (!showKey) return;
+    const hideKey = () => setShowKey(false);
+    const timer = window.setTimeout(hideKey, 15_000);
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') hideKey();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [showKey]);
+
   const retryHeartbeat = async () => {
     setIsChecking(true);
     setFeedback('');
@@ -308,6 +322,8 @@ export default function ActivatePage() {
       if (!response.ok || !envelope.success) {
         throw new Error(envelope.message || 'Lisans etkinleştirilemedi.');
       }
+      setShowKey(false);
+      setLicenseKey('');
       setFeedback('Lisans doğrulandı. Güvenli giriş ekranı hazırlanıyor…');
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Lisans etkinleştirilemedi.');
@@ -397,7 +413,7 @@ export default function ActivatePage() {
                 value={licenseKey}
                 onChange={(event) => setLicenseKey(formatLicenseKey(event.target.value))}
                 placeholder="RSTO-XXXX-XXXX-XXXX-XXXX"
-                autoComplete="off"
+                autoComplete="new-password"
                 autoCapitalize="characters"
                 spellCheck={false}
                 inputMode="text"
@@ -412,7 +428,7 @@ export default function ActivatePage() {
                 aria-label={showKey ? 'Lisans anahtarını gizle' : 'Lisans anahtarını göster'}
                 aria-pressed={showKey}
               >
-                {showKey ? <EyeOff size={19} /> : <Eye size={19} />}
+                {showKey ? <EyeOff size={19} aria-hidden="true" /> : <Eye size={19} aria-hidden="true" />}
               </button>
             </div>
             <p id="key-help" className={styles.fieldHelp}>Anahtarınız RSTO ile başlar ve beş bloktan oluşur.</p>

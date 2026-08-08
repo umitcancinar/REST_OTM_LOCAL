@@ -1,6 +1,7 @@
 import { prisma } from '../../config/database';
 import { logger } from '../../utils/logger';
 import { randomUUID } from 'crypto';
+import { enqueuePrintJob, kickPrintOutbox } from '../printing/print-outbox.service';
 
 export const invoiceService = {
   /**
@@ -67,33 +68,56 @@ export const invoiceService = {
       const integratorResult = await mockUyumsoftApiCall(invoiceData);
 
       // 4. Save Invoice to Database
-      const invoice = await prisma.invoice.create({
-        data: {
-          tenantId,
-          orderId,
-          uuid: integratorResult.uuid, // ETTN
-          invoiceNo: integratorResult.invoiceNo,
-          status: integratorResult.success ? 'SENT' : 'FAILED',
-          pdfUrl: integratorResult.pdfUrl,
-          totalAmount: order.grandTotal,
-          taxAmount: invoiceData.items.reduce((sum, item) => sum + (item.totalPrice * (item.taxRate / 100)), 0),
-          errorMessage: integratorResult.success ? null : 'Integrator connection failed'
+      const invoice = await prisma.$transaction(async (tx) => {
+        const created = await tx.invoice.create({
+          data: {
+            tenantId,
+            orderId,
+            uuid: integratorResult.uuid, // ETTN
+            invoiceNo: integratorResult.invoiceNo,
+            status: integratorResult.success ? 'SENT' : 'FAILED',
+            pdfUrl: integratorResult.pdfUrl,
+            totalAmount: order.grandTotal,
+            taxAmount: invoiceData.items.reduce((sum, item) => sum + (item.totalPrice * (item.taxRate / 100)), 0),
+            errorMessage: integratorResult.success ? null : 'Integrator connection failed'
+          }
+        });
+
+        if (created.status === 'SENT') {
+          const printer = await tx.printerConfig.findFirst({
+            where: { tenantId, isActive: true, departments: { has: 'CASHIER' } },
+          });
+          const jobId = `invoice-${created.id}`;
+          await enqueuePrintJob({
+            id: jobId,
+            tenantId,
+            orderId,
+            printerId: printer?.id,
+            eventName: 'print:invoice',
+            eventKey: 'INVOICE',
+            idempotencyKey: jobId,
+            payload: {
+              printer: printer?.name || '',
+              ipAddress: printer?.ipAddress || null,
+              port: printer?.port || 9100,
+              orderNumber: order.orderNumber,
+              uuid: created.uuid,
+              invoiceNo: created.invoiceNo,
+              totalAmount: created.totalAmount,
+              customerName: invoiceData.customerInfo.name,
+              pdfUrl: created.pdfUrl,
+            },
+            initialError: !printer?.ipAddress
+              ? 'E-fatura için CASHIER departmanına bağlı aktif ve IP tanımlı yazıcı yok'
+              : undefined,
+          }, tx);
         }
+        return created;
       });
 
-      // 5. Emit to Print Agent if successful
       if (invoice.status === 'SENT') {
-        const { getIO } = require('../../websocket/socket.server');
-        const io = getIO();
-        io.to(`tenant_${tenantId}`).emit('print:invoice', {
-          orderNumber: order.orderNumber,
-          uuid: invoice.uuid,
-          invoiceNo: invoice.invoiceNo,
-          totalAmount: invoice.totalAmount,
-          customerName: invoiceData.customerInfo.name,
-          pdfUrl: invoice.pdfUrl
-        });
-        logger.info(`[Print Agent] print:invoice eventi gönderildi (ETTN: ${invoice.uuid})`);
+        kickPrintOutbox();
+        logger.info(`[Print Agent] print:invoice kalıcı kuyruğa eklendi (ETTN: ${invoice.uuid})`);
       }
 
       return invoice;

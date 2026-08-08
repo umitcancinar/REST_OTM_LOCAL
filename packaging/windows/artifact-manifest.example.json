@@ -2,17 +2,15 @@
   "schemaVersion": 1,
   "productVersion": "1.0.0",
   "files": [
-    {
-      "relativePath": "bin/restotm-runtime-service.exe",
-      "sha256": "REPLACE_WITH_64_HEX_CHARACTERS",
-      "role": "runtime-service",
-      "authenticodeRequired": true
-    },
-    {
-      "relativePath": "bin/restotm-installer-bootstrap.exe",
-      "sha256": "REPLACE_WITH_64_HEX_CHARACTERS",
-      "role": "installer-bootstrap",
-      "authenticodeRequired": true
-    }
+    { "relativePath": "bin/restotm-runtime-service.exe", "sha256": "REPLACE_WITH_64_HEX_CHARACTERS", "role": "runtime-service", "authenticodeRequired": true },
+    { "relativePath": "bin/restotm-installer-bootstrap.exe", "sha256": "REPLACE_WITH_64_HEX_CHARACTERS", "role": "installer-bootstrap", "authenticodeRequired": true },
+    { "relativePath": "postgres/bin/postgres.exe", "sha256": "REPLACE_WITH_64_HEX_CHARACTERS", "role": "postgres-server", "authenticodeRequired": true },
+    { "relativePath": "postgres/bin/pg_dump.exe", "sha256": "REPLACE_WITH_64_HEX_CHARACTERS", "role": "postgres-client", "authenticodeRequired": true },
+    { "relativePath": "api/restotm-api.exe", "sha256": "REPLACE_WITH_64_HEX_CHARACTERS", "role": "local-api", "authenticodeRequired": true },
+    { "relativePath": "admin/restotm-admin.exe", "sha256": "REPLACE_WITH_64_HEX_CHARACTERS", "role": "admin-ui", "authenticodeRequired": true },
+    { "relativePath": "waiter/restotm-waiter.exe", "sha256": "REPLACE_WITH_64_HEX_CHARACTERS", "role": "waiter-ui", "authenticodeRequired": true },
+    { "relativePath": "print-agent/restotm-print-agent.exe", "sha256": "REPLACE_WITH_64_HEX_CHARACTERS", "role": "print-agent", "authenticodeRequired": true },
+    { "relativePath": "gateway/restotm-lan-gateway.exe", "sha256": "REPLACE_WITH_64_HEX_CHARACTERS", "role": "lan-gateway", "authenticodeRequired": true },
+    { "relativePath": "config/license-public-key.pem", "sha256": "REPLACE_WITH_64_HEX_CHARACTERS", "role": "license-public-key", "authenticodeRequired": false }
   ]
 }

@@ -39,17 +39,18 @@ if ($licenseUri.Scheme -ne 'https' -or
 if ([string]$manifest.productVersion -notmatch '^\d+\.\d+\.\d+$') {
     throw 'MSI productVersion tam olarak major.minor.patch biciminde olmalidir.'
 }
-if (-not (Test-Path -LiteralPath $contractPath -PathType Leaf)) {
-    throw 'installer-contract.json olmadan installer uretilmez.'
+$contract = Assert-RestOtmInstallerContract `
+    -ContractPath $contractPath `
+    -RequireProductionReady
+Assert-RestOtmArtifactContractAlignment -Manifest $manifest -Contract $contract
+
+$bootstrapExecutable = Join-Path $payload $contract.bootstrap_executable_relative_path
+if (-not (Test-Path -LiteralPath $bootstrapExecutable -PathType Leaf)) {
+    throw 'Native installer bootstrap executable canonical artifact yolunda bulunamadi.'
 }
-$contract = Get-Content -LiteralPath $contractPath -Raw | ConvertFrom-Json
-if ($contract.schemaVersion -ne 1 -or
-    $contract.firstRunProvisioning -ne $true -or
-    $contract.uninstallPreservesCustomerData -ne $true -or
-    $contract.serviceName -ne 'RESTOTMRuntime' -or
-    $contract.bootstrapExecutableRelativePath -ne 'bin/restotm-installer-bootstrap.exe' -or
-    $contract.licensePublicKeyRelativePath -ne 'config/license-public-key.pem') {
-    throw 'Runtime installer-contract.json beklenen provisioning sozlesmesini karsilamiyor.'
+& $bootstrapExecutable $contract.native_bootstrap.verification_command '--contract' $contractPath
+if ($LASTEXITCODE -ne 0) {
+    throw "Native bootstrap production contract capability probe basarisiz (exit=$LASTEXITCODE)."
 }
 
 $forbiddenFiles = Get-ChildItem -LiteralPath $payload -Recurse -File |

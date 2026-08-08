@@ -127,6 +127,53 @@ ağdaki garson telefonlarına ve yazıcılara hizmet veren profesyonel REST_OTM.
   DPAPI secret provisioning, ProgramData veri koruması, loopback iç portları ve
   yalnız Private+LocalSubnet `8787` firewall politikası eklendi.
 
+### Üçüncü kilometre taşı — dayanıklı operasyon ve üretim sınırları
+
+- `BİTTİ` Mevcut admin/garson/menu UI, navigasyon ve iş akışları korunarak
+  yalnız aktivasyon/lisans gizliliği, erişilebilirlik ve `/garson` base-path
+  regresyonları düzeltildi. Admin 18, garson 8 ve menu 3 production route'u
+  başarıyla derlendi; ekranlar sıfırdan yazılmadı.
+- `BİTTİ` Lisans anahtarları rotasyonlu sunucu pepper'ı ile HMAC-SHA-256
+  `keyHash` olarak saklanıyor; yeni kayıtlarda plaintext yok. Maskeli liste,
+  legacy backfill aracı ve tek non-revoked seat DB indeksi eklendi.
+- `AŞAMALI DIŞ İŞ` Mevcut cloud DB'de backfill sıfır kayıt doğrulanmadan legacy
+  plaintext `key` kolonu silinmeyecek. Bu expand/backfill/contract sırası kasıtlı
+  fail-safe migration politikasıdır.
+- `BİTTİ` Yerel yedek V2: AES-256-GCM şifreleme, AAD, SHA-256 manifest,
+  atomic/fsync yayın, ayrı klasöre şifreli replica, kalıcı retry ve haftalık
+  non-destructive `pg_restore --list` restore drill.
+- `BİTTİ` Aynı fiziksel diskte ikinci klasör sıradan kurulumları durdurmuyor;
+  görünür uyarı veriyor. `require-separate` politikası USB/NAS/ikinci disk isteyen
+  kurulumlarda fiziksel ayrımı zorunlu kılıyor.
+- `BİTTİ` Sipariş/iptal/ikram/fatura/paket/mutfak/ızgara/Z raporu yazdırmaları
+  DB-backed durable print outbox'a taşındı. Lease token, bounded retry+jitter,
+  dead-letter, attempt audit ve agent-side kalıcı dedupe ledger eklendi.
+- `BİTTİ` ADMIN/OWNER için payload/PII sızdırmayan print queue list/detail/summary
+  ve idempotent audited reprint API'si eklendi; eski `/printers/status` alanları
+  geriye uyumlu tutuldu.
+- `BİTTİ` Ortak/public menü için transactional local outbox ve outbound-only
+  HTTPS cloud projection uygulandı. Cloud istemci tenant kimliğine güvenmiyor;
+  HMAC publicId ve cloud-owned name/slug/domain kullanıyor. Public API yalnız
+  sanitize edilmiş `MenuPublication` okuyor.
+- `BİTTİ` Tek `8787` LAN gateway API/Socket.IO, `/garson` ve admin trafiğini
+  sabit loopback upstream'lere yönlendiriyor; Host/Origin/upgrade ve forwarded
+  header politikaları fail-closed.
+- `BİTTİ` OWNER/ADMIN-only LAN status ve garson QR SVG backend'i eklendi;
+  yalnız RFC1918/link-local/ULA adresleri gösteriliyor, MAC/interface bilgisi
+  sızmıyor. mDNS yayını ve Tauri ekranı hâlâ ayrı blocker.
+- `BİTTİ (KAYNAK/KONTRAT)` Native Rust Windows supervisor/bootstrap temeli,
+  SCM/Job Object/crash-loop/DPAPI okuma ve canonical installer kontratı eklendi.
+  Native ACL + CryptProtectData yazma backend'i hazır olmadığı için bootstrap
+  production'da bilinçli olarak false success vermiyor.
+- `BİTTİ` Fail-closed Windows payload assembler kaynak/map/env/test/private key,
+  symlink, case collision ve imzasız PE'yi reddediyor; gerçek üretim girdileri
+  eksikken installer üretmiyor.
+- `GEÇTİ` Birleşik doğrulama: Prisma validate; 11 workspace typecheck; API
+  98/98, license 16/16, print-agent 29/29, gateway 5/5, waiter 1/1, menu 2/2,
+  release 16/16, Windows 13/13 ve Rust kaynak politikası 6/6.
+- `GEÇTİ` Admin, waiter, menu ve superadmin production build; local artifact
+  102 dosya ve cloud artifact 48 dosya fail-closed audit'ten geçti.
+
 ## Şimdi yapıyorum
 
 ### Faz 1 — cloud/local fiziksel ayrımı
@@ -138,7 +185,8 @@ ağdaki garson telefonlarına ve yazıcılara hizmet veren profesyonel REST_OTM.
   fiziksel olarak çıkarıldı.
 - `BİTTİ` Tek abonelik/lisans süre kaynağı imzalı License entitlement oldu.
 - `BİTTİ` Render yalnız `cloud.ts` girişini çalıştırıyor.
-- `KALDI` Ortak menü projection outbox/sync protokolünün uygulanması.
+- `BİTTİ` Ortak menü projection outbox/sync protokolü uygulandı; TPM/CNG
+  challenge ve custom-domain DNS sahiplik doğrulaması sertleştirme olarak kaldı.
 
 ### Faz 2 — lisans runtime ve ekranları
 
@@ -151,15 +199,19 @@ ağdaki garson telefonlarına ve yazıcılara hizmet veren profesyonel REST_OTM.
 
 - `BİTTİ (İSKELET)` WiX/Burn, Windows service, DPAPI, veri dizini ve firewall
   kurulum sözleşmesi.
-- `KALDI` İmzalı native supervisor/bootstrap ve paketlenmiş PostgreSQL service.
+- `BİTTİ (KAYNAK/KONTRAT)` Native supervisor/bootstrap temeli ve canonical
+  topoloji var; Windows'ta derleme/SCM/Job Object/ACL kabulü kaldı.
+- `KALDI` Paketlenmiş PostgreSQL service ve gerçek Windows executable seti.
 - `KALDI` Local API, Next standalone admin/waiter ve print-agent gerçek payload.
-- `KALDI` Tek origin gateway, mDNS/IP fallback, garson QR ve Tauri kontrol merkezi.
+- `BİTTİ` Tek-origin gateway ile güvenli IP fallback/garson QR backend'i.
+- `KALDI` mDNS advertising ve Tauri kontrol merkezi.
 
 ### Faz 4 — dayanıklılık ve saha kalitesi
 
-- Transactional order/menu/print outbox ve idempotency.
-- Otomatik yedek + hash + retention tamam; DPAPI/BitLocker anahtar koruması,
-  ayrı fiziksel kopya ve otomatik restore testi kaldı.
+- `BİTTİ` Transactional order/menu/print outbox ve idempotency temelleri.
+- `BİTTİ` Şifreli otomatik yedek + hash + retention + external replica +
+  otomatik restore drill. Windows DPAPI/BitLocker anahtar provisioning ve gerçek
+  ikinci disk/NAS saha kabulü kaldı.
 - İmzalı update manifesti, health gate ve rollback.
 - Profesyonel ortak UI package ve mobile-first waiter sıcak akışı.
 - Self-host fontlar, reduced-motion, erişilebilir dialog/bottom-sheet.
@@ -186,8 +238,8 @@ ağdaki garson telefonlarına ve yazıcılara hizmet veren profesyonel REST_OTM.
 - [ ] Lisans state silme/clock/replay/clone saldırı testleri
 - [ ] Suspend/revoke'in tüm REST/WS/job yollarını kilitlemesi
 - [ ] Açık adisyon kapatma, yedek ve export'un lisans kilidinde kalması
-- [ ] Print queue retry/fallback/audit
-- [ ] Doğrulanmış otomatik yedek ve geri yükleme
+- [x] Print queue retry/dead-letter/reprint audit (gerçek yazıcı pilotu kaldı)
+- [x] Şifreli otomatik yedek ve non-destructive restore doğrulama
 - [ ] İmzasız/bozuk update reddi ve rollback
 - [ ] Source map/kaynak/cloud private key içermeyen release artifact
 - [ ] Gerçek restoran pilotu

@@ -91,6 +91,7 @@ export default function SettingsPage() {
   const [showAgentSecret, setShowAgentSecret] = useState(false);
   const [isRegeneratingSecret, setIsRegeneratingSecret] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [subscriptionNow, setSubscriptionNow] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   // Printers State
@@ -140,6 +141,16 @@ export default function SettingsPage() {
       }
     }
     fetchSettings();
+  }, []);
+
+  useEffect(() => {
+    const refreshClock = () => setSubscriptionNow(Date.now());
+    const initialTimer = window.setTimeout(refreshClock, 0);
+    const interval = window.setInterval(refreshClock, 60 * 60 * 1000);
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(interval);
+    };
   }, []);
 
   const loadPrinters = async () => {
@@ -461,15 +472,15 @@ export default function SettingsPage() {
   // rozet hic gosterilmez — superadmin bir sure girene kadar mevcut
   // musterilerde herhangi bir gorsel degisiklik olmaz.
   const subscriptionBadge = (() => {
-    if (!tenant?.subscriptionExpiresAt) return null;
-    const days = Math.ceil((new Date(tenant.subscriptionExpiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    if (!tenant?.subscriptionExpiresAt || subscriptionNow === null) return null;
+    const days = Math.ceil((new Date(tenant.subscriptionExpiresAt).getTime() - subscriptionNow) / (1000 * 60 * 60 * 24));
     if (days < 0) return { text: 'Üyelik süreniz doldu. Lütfen yönetimle iletişime geçin.', bg: 'var(--danger-bg)', color: 'var(--danger)' };
     if (days <= 14) return { text: `Üyelik süreniz: ${days} gün kaldı`, bg: 'var(--warning-bg)', color: 'var(--warning)' };
     return { text: `Üyelik süreniz: ${days} gün kaldı`, bg: 'var(--success-bg)', color: 'var(--success)' };
   })();
 
   return (
-    <div className={`${styles.page} animate-fade-in`}>
+    <div className={`${styles.page} animate-fade-in`} aria-busy={isLoading}>
       {subscriptionBadge && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 8,

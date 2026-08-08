@@ -20,6 +20,11 @@ import {
   isActivationEligible,
   isHeartbeatEligible,
 } from './license-lifecycle.policy';
+import {
+  createLicenseKeyMaterial,
+  licenseKeyHashCandidates,
+  normalizeLicenseKey,
+} from './license-key.policy';
 
 /** Yoklama araligi: lokal taraf bu siklikta baglanir. */
 export const HEARTBEAT_INTERVAL_HOURS = 1;
@@ -39,6 +44,57 @@ interface HeartbeatInput {
   ip?: string;
 }
 
+const tenantInclude = { tenant: { select: { name: true, isActive: true } } } as const;
+
+/**
+ * Incoming raw keys are converted to all configured pepper hashes. Legacy
+ * plaintext is a temporary fallback only; a successful read immediately
+ * rehashes with the active pepper and clears the old column.
+ */
+async function findLicenseByRawKey(rawKey: string) {
+  const normalizedKey = normalizeLicenseKey(rawKey);
+  const candidates = licenseKeyHashCandidates(normalizedKey, cloudEnv.LICENSE_KEY_PEPPER_RING);
+  let license = await prisma.license.findFirst({
+    where: { keyHash: { in: candidates.map((candidate) => candidate.keyHash) } },
+    include: tenantInclude,
+  });
+
+  if (!license) {
+    license = await prisma.license.findUnique({
+      where: { legacyKey: normalizedKey },
+      include: tenantInclude,
+    });
+  }
+  if (!license) return { license: null, normalizedKey };
+
+  const active = createLicenseKeyMaterial(normalizedKey, cloudEnv.LICENSE_KEY_PEPPER_RING);
+  if (
+    license.keyHash !== active.keyHash ||
+    license.keyPepperVersion !== active.keyPepperVersion ||
+    license.keyLast4 !== active.keyLast4 ||
+    license.legacyKey !== null
+  ) {
+    await prisma.license.update({
+      where: { id: license.id },
+      data: {
+        keyHash: active.keyHash,
+        keyPepperVersion: active.keyPepperVersion,
+        keyLast4: active.keyLast4,
+        legacyKey: null,
+      },
+    });
+    license = {
+      ...license,
+      keyHash: active.keyHash,
+      keyPepperVersion: active.keyPepperVersion,
+      keyLast4: active.keyLast4,
+      legacyKey: null,
+    };
+  }
+
+  return { license, normalizedKey };
+}
+
 /** Supheli bir olayi kaydeder. Superadmin panelinde gorunur. */
 async function flagSuspicious(licenseId: string, reason: string) {
   await prisma.license.update({
@@ -54,7 +110,6 @@ async function flagSuspicious(licenseId: string, reason: string) {
 /** Imzalanmis lisansi uretir. Sure her seferinde DB'den okunur —
  *  superadmin sureyi uzattiginda bir sonraki yoklamada otomatik yansir. */
 function sign(license: {
-  key: string;
   tenantId: string;
   expiresAt: Date;
   graceDays: number;
@@ -63,7 +118,7 @@ function sign(license: {
   status: 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'REVOKED';
   tenant: { name: string };
   tenantActive: boolean;
-}) {
+}, licenseKey: string) {
   if (!cloudEnv.LICENSE_PRIVATE_KEY) {
     throw Object.assign(new Error('Lisans sunucusu yapılandırılmamış.'), { statusCode: 503 });
   }
@@ -74,7 +129,7 @@ function sign(license: {
 
   return issueLicense(
     {
-      licenseKey: license.key,
+      licenseKey,
       tenantId: license.tenantId,
       restaurantName: license.tenant.name,
       hardwareId: license.hardwareId,
@@ -99,10 +154,7 @@ export const licenseService = {
    * Lisansi o makineye baglar ve imzali lisansi dondurur.
    */
   async activate(input: ActivateInput) {
-    const license = await prisma.license.findUnique({
-      where: { key: input.licenseKey.trim().toUpperCase() },
-      include: { tenant: { select: { name: true, isActive: true } } },
-    });
+    const { license, normalizedKey } = await findLicenseByRawKey(input.licenseKey);
 
     // Bilinmeyen anahtar ile "baska makineye bagli" ayni mesaji dondurur:
     // saldirgan hangi anahtarlarin var oldugunu deneyerek ogrenemesin.
@@ -195,7 +247,10 @@ export const licenseService = {
     logger.info(`Lisans aktive edildi: ${updated.id} -> ${updated.tenant.name}`);
 
     return {
-      license: sign({ ...updated, hardwareId: input.hardwareId, tenantActive: updated.tenant.isActive }),
+      license: sign(
+        { ...updated, hardwareId: input.hardwareId, tenantActive: updated.tenant.isActive },
+        normalizedKey,
+      ),
       serverTime: new Date().toISOString(),
       heartbeatIntervalHours: HEARTBEAT_INTERVAL_HOURS,
     };
@@ -209,10 +264,7 @@ export const licenseService = {
    * en gec bir saat icinde yeni sure kendiliginden gecerli olur.
    */
   async heartbeat(input: HeartbeatInput) {
-    const license = await prisma.license.findUnique({
-      where: { key: input.licenseKey.trim().toUpperCase() },
-      include: { tenant: { select: { name: true, isActive: true } } },
-    });
+    const { license, normalizedKey } = await findLicenseByRawKey(input.licenseKey);
 
     if (!license) {
       throw Object.assign(new Error('Lisans anahtarı geçersiz.'), { statusCode: 404 });
@@ -267,7 +319,7 @@ export const licenseService = {
         ...updated,
         hardwareId: input.hardwareId,
         tenantActive: updated.tenant.isActive,
-      }),
+      }, normalizedKey),
       serverTime: new Date().toISOString(),
       heartbeatIntervalHours: HEARTBEAT_INTERVAL_HOURS,
     };

@@ -15,7 +15,11 @@ export function generateLicenseKey(): string {
 /** Tam anahtar yalnız oluşturma yanıtında görünür. */
 export function maskLicenseKey(key: string): string {
   const suffix = key.replace(/-/g, '').slice(-4);
-  return `RSTO-****-****-****-${suffix}`;
+  return maskLicenseKeyLast4(suffix);
+}
+
+export function maskLicenseKeyLast4(last4: string | null): string {
+  return `RSTO-****-****-****-${last4 || '????'}`;
 }
 
 export function initialExpiry(

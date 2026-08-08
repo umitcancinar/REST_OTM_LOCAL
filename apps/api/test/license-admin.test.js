@@ -6,7 +6,13 @@ const {
   generateLicenseKey,
   initialExpiry,
   maskLicenseKey,
+  maskLicenseKeyLast4,
 } = require('../dist/modules/license-admin/license-admin.policy.js');
+const {
+  createLicenseKeyMaterial,
+  licenseKeyHashCandidates,
+  parseLicenseKeyPepperRing,
+} = require('../dist/modules/license/license-key.policy.js');
 const {
   assertSignableStatus,
   isActivationEligible,
@@ -26,6 +32,53 @@ test('masked responses never expose the full license key', () => {
   const masked = maskLicenseKey(key);
   assert.equal(masked, 'RSTO-****-****-****-NPQR');
   assert.equal(masked.includes('ABCD'), false);
+  assert.equal(maskLicenseKeyLast4('NPQR'), masked);
+  assert.equal(maskLicenseKeyLast4(null), 'RSTO-****-****-****-????');
+});
+
+test('license keys use deterministic peppered HMAC material without plaintext', () => {
+  const ring = parseLicenseKeyPepperRing(
+    JSON.stringify({
+      v1: 'a'.repeat(32),
+      v2: 'b'.repeat(48),
+    }),
+    'v2',
+  );
+  const material = createLicenseKeyMaterial(' rsto-abcd-efgh-jklm-npqr ', ring);
+
+  assert.equal(material.normalizedKey, 'RSTO-ABCD-EFGH-JKLM-NPQR');
+  assert.equal(material.keyPepperVersion, 'v2');
+  assert.equal(material.keyLast4, 'NPQR');
+  assert.match(material.keyHash, /^[a-f0-9]{64}$/);
+  assert.equal(material.keyHash.includes('ABCD'), false);
+  assert.equal(createLicenseKeyMaterial(material.normalizedKey, ring).keyHash, material.keyHash);
+});
+
+test('pepper rotation reads every configured version but writes the active one first', () => {
+  const ring = parseLicenseKeyPepperRing(
+    JSON.stringify({ old: 'o'.repeat(32), current: 'c'.repeat(32) }),
+    'current',
+  );
+  const candidates = licenseKeyHashCandidates('RSTO-ABCD-EFGH-JKLM-NPQR', ring);
+
+  assert.deepEqual(candidates.map((candidate) => candidate.keyPepperVersion), ['current', 'old']);
+  assert.notEqual(candidates[0].keyHash, candidates[1].keyHash);
+  assert.throws(() => parseLicenseKeyPepperRing('{bad-json', 'v1'));
+  assert.throws(() => parseLicenseKeyPepperRing(JSON.stringify({ v1: 'short' }), 'v1'));
+  assert.throws(() => parseLicenseKeyPepperRing(JSON.stringify({ v1: 'x'.repeat(32) }), 'v2'));
+});
+
+test('migration enforces one non-revoked seat and keeps a plaintext preflight', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const migration = fs.readFileSync(
+    path.join(__dirname, '../prisma/migrations/20260809010000_harden_license_keys/migration.sql'),
+    'utf8',
+  );
+  assert.match(migration, /WHERE "status" <> 'REVOKED'/);
+  assert.match(migration, /licenses_one_non_revoked_per_tenant_key/);
+  assert.match(migration, /ALTER COLUMN "key" DROP NOT NULL/);
+  assert.doesNotMatch(migration, /DROP COLUMN "key"/);
 });
 
 test('new license defaults to 365 days when no explicit expiry is given', () => {

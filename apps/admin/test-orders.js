@@ -1,6 +1,5 @@
-const puppeteer = require('puppeteer');
-
 (async () => {
+  const { default: puppeteer } = await import('puppeteer');
   const browser = await puppeteer.launch({ headless: "new" });
   const page = await browser.newPage();
   
@@ -17,7 +16,7 @@ const puppeteer = require('puppeteer');
     if (cards.length > 0) {
       console.log("Clicking the first order card...");
       await cards[0].click();
-      await page.waitForTimeout(2000);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
       
       const modal = await page.$('.modal-overlay');
       if (modal) {

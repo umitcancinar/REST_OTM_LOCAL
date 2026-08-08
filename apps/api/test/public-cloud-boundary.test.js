@@ -28,6 +28,15 @@ test('cloud public projection has no local waiter/socket or write operation', ()
     publicCloudControllerSource,
     /prisma\.[A-Za-z]+\.(?:create|update|delete|upsert|createMany|updateMany|deleteMany)\s*\(/,
   );
+  assert.match(publicCloudControllerSource, /prisma\.menuPublication/);
+  assert.doesNotMatch(
+    publicCloudControllerSource,
+    /prisma\.(?:tenant|menuCategory|menuItem|reservation|restaurantTable)/,
+  );
+  assert.match(publicRoutesSource, /cms\/reservations/);
+  assert.match(publicRoutesSource, /cms\/tablemap/);
+  assert.match(publicCloudControllerSource, /getReservations: handler\(async \(req, res\).*data: \[\]/s);
+  assert.match(publicCloudControllerSource, /getTableMap: handler\(async \(req, res\).*data: \[\]/s);
 });
 
 test('waiter call exists only in the local LAN projection', () => {

@@ -259,30 +259,30 @@ Güncelleme:
 - [x] Tek süre kaynağı: imzalı License entitlement
 - [x] Cloud private key'in local artifact'ta olmadığını fail-closed audit ile kanıtlama
 - [x] Render tanımını yalnız cloud entrypoint'e indirme
-- [ ] Ortak/public menü projection outbox/sync uygulaması
+- [x] Ortak/public menü projection outbox/sync uygulaması
 
 ### Faz 2 — lisans runtime ve UI
 
-- [ ] Native guard/supervisor
+- [x] Native guard/supervisor kaynak ve fail-closed kontrat temeli
 - [x] Aktivasyon ve kontrollü kilit/recovery ekranı
 - [x] Global API/WS/job license gate
-- [ ] Jitter'lı heartbeat + imzalı lease
+- [x] Jitter'lı heartbeat + imzalı lease
 - [x] Superadmin License CRUD/suspend/revoke/rebind/audit UI
 
 ### Faz 3 — yerel saha runtime'ı
 
 - [ ] Bundled loopback PostgreSQL
-- [ ] Admin/waiter standalone build
-- [ ] Local API + Socket.IO + print-agent supervision
-- [ ] Tek origin gateway
-- [ ] Firewall, mDNS/IP fallback ve garson QR
+- [x] Admin/waiter standalone build
+- [ ] Local API + Socket.IO + print-agent gerçek Windows supervision kabulü
+- [x] Tek origin gateway
+- [ ] Firewall, mDNS advertising ve Tauri UI (IP fallback + garson QR backend tamam)
 - [x] WiX/Burn, service recovery, DPAPI, ProgramData ve firewall güvenlik iskeleti
 
 ### Faz 4 — dayanıklılık
 
-- [ ] Order/menu/print transactional outbox
+- [x] Order/menu/print transactional outbox
 - [x] Atomik PostgreSQL yedek, hash ve retention runtime
-- [ ] Şifreleme, ayrı fiziksel kopya ve restore doğrulama
+- [x] Şifreleme, ayrı klasör/volume replica ve non-destructive restore doğrulama
 - [ ] İmzalı update ve rollback
 - [ ] Health/readiness paneli
 
@@ -298,15 +298,15 @@ Güncelleme:
 | İstenen | Güncel durum |
 |---|---|
 | Kurulum dosyası, birkaç tıkla kurulum | Planlandı, henüz yok |
-| Lokal sunucunun açılması | API runtime var; Windows supervisor/gateway yok |
+| Lokal sunucunun açılması | API + gateway + native supervisor kaynağı var; gerçek Windows artifact/VM kabulü yok |
 | Lokal veritabanı | PostgreSQL + yedek runtime var; Windows paketleme yok |
 | Lisans anahtarı giriş ekranı | Tamamlandı; Windows temiz VM kabulü bekliyor |
 | Süre bitince kilit/recovery ekranı | Tamamlandı; saha kabulü bekliyor |
 | Periyodik yoklama | Saatlik runtime + retry tamamlandı |
 | Kod gizleme/paketleme | Fiziksel API split ve fail-closed audit geçti; native/UI payload bundling kaldı |
 | Windows otomatik başlama | WiX/service iskeleti var; imzalı supervisor ve Win11 kabulü yok |
-| Print-agent pakete girsin | Agent çalışıyor ve testleri geçiyor; supervisor yok |
-| Garson Wi-Fi'dan bağlansın | Same-origin istemci düzeltildi; gateway/QR/firewall yok |
+| Print-agent pakete girsin | Durable outbox/agent çalışıyor; gerçek Windows executable/pilot kaldı |
+| Garson Wi-Fi'dan bağlansın | Same-origin gateway ve güvenli IP/QR backend tamam; mDNS/Tauri ve telefon pilotu kaldı |
 | Superadmin lisans üretme/yönetme | CRUD/lifecycle/audit API ve profesyonel UI tamam |
 
 Bu tablo her faz sonunda güncellenecek; “bitti” yalnız temiz Windows VM ve gerçek

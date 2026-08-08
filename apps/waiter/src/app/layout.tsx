@@ -5,7 +5,7 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'REST_OTM — Garson Paneli',
   description: 'Hızlı sipariş alma, masa yönetimi ve adisyon takibi',
-  manifest: '/manifest.json',
+  manifest: '/garson/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
@@ -25,7 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="tr" suppressHydrationWarning>
       <head>
-        <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+        <link rel="apple-touch-icon" href="/garson/icon.png" />
       </head>
       <body suppressHydrationWarning>
         <ThemeProvider>{children}</ThemeProvider>

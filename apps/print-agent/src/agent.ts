@@ -12,10 +12,52 @@ import { escpos, PrintLayout } from './printer/escpos';
 import type { PrintLayoutKey } from '@rest-otm/receipt-core';
 import { sendToPrinter } from './printer/router';
 import { GMP3Handler } from './pos/gmp3';
+import { PrintJobLedger } from './print-job-ledger';
 
 let socket: Socket;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_DISPLAY = 5;
+const printJobLedger = new PrintJobLedger(config.dataDir);
+
+type PrintDelivery = {
+  jobId: string;
+  attemptNumber?: number;
+  dispatchToken?: string;
+};
+
+function acknowledgePrint(
+  delivery: PrintDelivery,
+  success: boolean,
+  error?: string,
+): void {
+  if (success) {
+    try {
+      printJobLedger.markCompleted(delivery.jobId);
+    } catch (error) {
+      console.error(
+        `FATAL: ${delivery.jobId} fiziksel olarak yazdırıldı ancak dedupe ledger kalıcılaştırılamadı. `
+        + 'Sonuç belirsiz; yanlış başarısız ACK göndermemek için agent durduruluyor.',
+        error,
+      );
+      socket?.disconnect();
+      process.exit(70);
+    }
+  }
+  socket.emit('print:result', {
+    jobId: delivery.jobId,
+    attemptNumber: delivery.attemptNumber,
+    dispatchToken: delivery.dispatchToken,
+    success,
+    error,
+  });
+}
+
+function replayCompleted(delivery: PrintDelivery): boolean {
+  if (!printJobLedger.has(delivery.jobId)) return false;
+  acknowledgePrint(delivery, true);
+  console.log(`   ♻️  ${delivery.jobId} daha once basildi; kagida tekrar gonderilmedi`);
+  return true;
+}
 
 function connect(): void {
   console.log(`
@@ -45,6 +87,8 @@ function connect(): void {
   // ─── Handle Kitchen (Fırın) Print Jobs ────────────────
   socket.on('print:kitchen', async (data: {
     jobId: string;
+    attemptNumber?: number;
+    dispatchToken?: string;
     department: 'KITCHEN' | 'GRILL';
     ipAddress?: string;
     port?: number;
@@ -62,6 +106,7 @@ function connect(): void {
     // Özel çıktı tasarım ayarları — API tarafından tenant DB'den çekilir
     layout?: PrintLayout;
   }) => {
+    if (replayCompleted(data)) return;
     const dept = data.department === 'GRILL' ? 'IZGARA' : 'FIRIN';
     console.log(`\n🍳 ${dept} print job: ${data.jobId}`);
     console.log(`   Order: ${data.orderNumber} | Table: ${data.tableNumber}`);
@@ -91,26 +136,20 @@ function connect(): void {
       console.log(`   📡 Sending to ${ip || 'tanımsız'}:${port || 'tanımsız'}`);
       const success = await sendToPrinter('', ticketData, ip, port);
 
-      socket.emit('print:result', {
-        jobId: data.jobId,
-        success,
-        error: success ? undefined : `${dept} yazıcısına bağlanılamadı (${ip}:${port})`,
-      });
+      acknowledgePrint(data, success, success ? undefined : `${dept} yazıcısına bağlanılamadı (${ip}:${port})`);
 
       console.log(success ? `   ✅ ${dept} job ${data.jobId} SENT` : `   ❌ ${dept} job ${data.jobId} FAILED`);
     } catch (error) {
       console.error(`   ❌ ${dept} print error:`, error);
-      socket.emit('print:result', {
-        jobId: data.jobId,
-        success: false,
-        error: (error as Error).message,
-      });
+      acknowledgePrint(data, false, (error as Error).message);
     }
   });
 
   // Backward-compat: legacy print:job events (eski akış için)
   socket.on('print:job', async (data: {
     jobId: string;
+    attemptNumber?: number;
+    dispatchToken?: string;
     printer: string;
     department: string;
     ipAddress?: string;
@@ -124,6 +163,7 @@ function connect(): void {
     tableNumber: number;
     orderNumber: string;
   }) => {
+    if (replayCompleted(data)) return;
     console.log(`\n📋 Legacy print job: ${data.jobId} | Dept: ${data.department}`);
 
     try {
@@ -137,12 +177,12 @@ function connect(): void {
       });
 
       const success = await sendToPrinter(data.printer, ticketData, data.ipAddress, data.port);
-      socket.emit('print:result', { jobId: data.jobId, success });
+      acknowledgePrint(data, success);
 
       console.log(success ? `   ✅ OK` : `   ❌ FAILED`);
     } catch (error) {
       console.error(`   ❌ Error:`, error);
-      socket.emit('print:result', { jobId: data.jobId, success: false, error: (error as Error).message });
+      acknowledgePrint(data, false, (error as Error).message);
     }
   });
 
@@ -151,6 +191,8 @@ function connect(): void {
   // ─── Handle Bill Printing ────────────────
   socket.on('print:bill', async (data: {
     jobId: string;
+    attemptNumber?: number;
+    dispatchToken?: string;
     printer: string;
     ipAddress?: string;
     port?: number;
@@ -166,6 +208,7 @@ function connect(): void {
     paymentMethod?: string | null;
     notes?: string | null;
   }) => {
+    if (replayCompleted(data)) return;
     console.log(`\n🧾 Bill printing: ${data.jobId}`);
     
     try {
@@ -177,18 +220,10 @@ function connect(): void {
 
       const success = await sendToPrinter(data.printer, ticketData, data.ipAddress, data.port);
       
-      socket.emit('print:result', {
-        jobId: data.jobId,
-        success,
-        error: success ? undefined : 'Failed to send to printer',
-      });
+      acknowledgePrint(data, success, success ? undefined : 'Failed to send to printer');
     } catch (error) {
       console.error(`   ❌ Bill print error:`, error);
-      socket.emit('print:result', {
-        jobId: data.jobId,
-        success: false,
-        error: (error as Error).message,
-      });
+      acknowledgePrint(data, false, (error as Error).message);
     }
   });
 
@@ -198,35 +233,32 @@ function connect(): void {
   // bulmak icin kullanilir.
   socket.on('print:calibration', async (data: {
     jobId: string;
+    attemptNumber?: number;
+    dispatchToken?: string;
     printer: string;
     ipAddress?: string;
     port?: number;
     layoutKey: PrintLayoutKey;
     layout?: PrintLayout;
   }) => {
+    if (replayCompleted(data)) return;
     console.log(`\n📏 Kalibrasyon fişi: ${data.jobId} | Şablon: ${data.layoutKey}`);
 
     try {
       const ticketData = escpos.calibration(data.layoutKey, data.layout);
       const success = await sendToPrinter(data.printer, ticketData, data.ipAddress, data.port);
-      socket.emit('print:result', {
-        jobId: data.jobId,
-        success,
-        error: success ? undefined : 'Failed to send to printer',
-      });
+      acknowledgePrint(data, success, success ? undefined : 'Failed to send to printer');
     } catch (error) {
       console.error(`   ❌ Kalibrasyon hatası:`, error);
-      socket.emit('print:result', {
-        jobId: data.jobId,
-        success: false,
-        error: (error as Error).message,
-      });
+      acknowledgePrint(data, false, (error as Error).message);
     }
   });
 
   // ─── Z Raporu (gun sonu ozeti) ───
   socket.on('print:zreport', async (data: {
     jobId: string;
+    attemptNumber?: number;
+    dispatchToken?: string;
     printer: string;
     ipAddress?: string;
     port?: number;
@@ -234,28 +266,27 @@ function connect(): void {
     // Rapor verisi (escpos.zReport'un bekledigi alanlar)
     [key: string]: unknown;
   }) => {
+    if (replayCompleted(data)) return;
     console.log(`\n📊 Z raporu: ${data.jobId}`);
 
     try {
       const ticketData = escpos.zReport(data as never);
       const success = await sendToPrinter(data.printer, ticketData, data.ipAddress, data.port);
-      socket.emit('print:result', {
-        jobId: data.jobId,
-        success,
-        error: success ? undefined : 'Failed to send to printer',
-      });
+      acknowledgePrint(data, success, success ? undefined : 'Failed to send to printer');
     } catch (error) {
       console.error(`   ❌ Z raporu hatası:`, error);
-      socket.emit('print:result', {
-        jobId: data.jobId,
-        success: false,
-        error: (error as Error).message,
-      });
+      acknowledgePrint(data, false, (error as Error).message);
     }
   });
 
   // ─── Handle E-Archive Invoice Printing ───
   socket.on('print:invoice', async (data: {
+    jobId: string;
+    attemptNumber?: number;
+    dispatchToken?: string;
+    printer: string;
+    ipAddress?: string;
+    port?: number;
     orderNumber: string;
     uuid: string;
     invoiceNo: string;
@@ -263,16 +294,14 @@ function connect(): void {
     customerName: string;
     pdfUrl?: string;
   }) => {
+    if (replayCompleted(data)) return;
     console.log(`\n📄 Invoice printing: ${data.invoiceNo} (ETTN: ${data.uuid})`);
     
     try {
       const ticketData = escpos.invoiceInfo(data);
 
-      // In a real scenario, you'd configure a specific 'INVOICE' printer.
-      // For now, we fallback to the first configured cashier or network printer.
-      const targetPrinter = Object.keys(config.printers).find(k => config.printers[k]?.type === 'network') || 'CashierPrinter';
-
-      const success = await sendToPrinter(targetPrinter, ticketData);
+      const success = await sendToPrinter(data.printer, ticketData, data.ipAddress, data.port);
+      acknowledgePrint(data, success, success ? undefined : 'Failed to send invoice to printer');
       
       if (success) {
         console.log(`   ✅ Invoice ${data.invoiceNo} printed successfully`);
@@ -281,6 +310,7 @@ function connect(): void {
       }
     } catch (error) {
       console.error(`   ❌ Invoice print error:`, error);
+      acknowledgePrint(data, false, (error as Error).message);
     }
   });
 

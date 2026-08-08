@@ -1,4 +1,5 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
+const WAITER_BASE_PATH = '/garson';
 const ORDER_COMMAND_STORAGE_KEY = 'restotm:pending-order-command';
 
 async function orderCommandBody(endpoint: string, body: any): Promise<any> {
@@ -79,7 +80,7 @@ async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {
     // Force Logout on persistent 401 or refresh failure
     console.warn('Session expired. Redirecting to login...');
     localStorage.clear(); // Clear everything to be safe
-    window.location.href = '/?error=session_expired';
+    window.location.href = `${WAITER_BASE_PATH}/?error=session_expired`;
     return;
   }
 

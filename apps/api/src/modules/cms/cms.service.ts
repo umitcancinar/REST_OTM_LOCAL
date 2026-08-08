@@ -1,4 +1,8 @@
 import { prisma } from '../../config/database';
+import {
+  enqueueMenuProjection,
+  kickMenuProjectionOutbox,
+} from '../menu-projection/menu-projection.service';
 
 export const cmsService = {
   // Gallery
@@ -9,20 +13,31 @@ export const cmsService = {
     });
   },
   async createGalleryImage(tenantId: string, data: any) {
-    return prisma.galleryImage.create({
-      data: { ...data, tenantId },
+    const result = await prisma.$transaction(async (tx) => {
+      const created = await tx.galleryImage.create({ data: { ...data, tenantId } });
+      await enqueueMenuProjection(tx, tenantId);
+      return created;
     });
+    kickMenuProjectionOutbox();
+    return result;
   },
   async updateGalleryImage(tenantId: string, id: string, data: any) {
-    return prisma.galleryImage.update({
-      where: { id_tenantId: { id, tenantId } },
-      data,
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.galleryImage.update({ where: { id_tenantId: { id, tenantId } }, data });
+      await enqueueMenuProjection(tx, tenantId);
+      return updated;
     });
+    kickMenuProjectionOutbox();
+    return result;
   },
   async deleteGalleryImage(tenantId: string, id: string) {
-    return prisma.galleryImage.delete({
-      where: { id_tenantId: { id, tenantId } },
+    const result = await prisma.$transaction(async (tx) => {
+      const deleted = await tx.galleryImage.delete({ where: { id_tenantId: { id, tenantId } } });
+      await enqueueMenuProjection(tx, tenantId);
+      return deleted;
     });
+    kickMenuProjectionOutbox();
+    return result;
   },
 
   // Stories
@@ -33,20 +48,31 @@ export const cmsService = {
     });
   },
   async createStory(tenantId: string, data: any) {
-    return prisma.story.create({
-      data: { ...data, tenantId },
+    const result = await prisma.$transaction(async (tx) => {
+      const created = await tx.story.create({ data: { ...data, tenantId } });
+      await enqueueMenuProjection(tx, tenantId);
+      return created;
     });
+    kickMenuProjectionOutbox();
+    return result;
   },
   async updateStory(tenantId: string, id: string, data: any) {
-    return prisma.story.update({
-      where: { id_tenantId: { id, tenantId } },
-      data,
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.story.update({ where: { id_tenantId: { id, tenantId } }, data });
+      await enqueueMenuProjection(tx, tenantId);
+      return updated;
     });
+    kickMenuProjectionOutbox();
+    return result;
   },
   async deleteStory(tenantId: string, id: string) {
-    return prisma.story.delete({
-      where: { id_tenantId: { id, tenantId } },
+    const result = await prisma.$transaction(async (tx) => {
+      const deleted = await tx.story.delete({ where: { id_tenantId: { id, tenantId } } });
+      await enqueueMenuProjection(tx, tenantId);
+      return deleted;
     });
+    kickMenuProjectionOutbox();
+    return result;
   },
 
   // Settings
@@ -58,17 +84,19 @@ export const cmsService = {
     return tenant?.settings || {};
   },
   async updateSettings(tenantId: string, newSettings: any) {
-    const current = await this.getSettings(tenantId);
-    return prisma.tenant.update({
-      where: { id: tenantId },
-      data: { 
-        settings: {
-          ...(current as object),
-          ...newSettings
-        }
-      },
-      select: { settings: true },
+    const result = await prisma.$transaction(async (tx) => {
+      const tenant = await tx.tenant.findUnique({ where: { id: tenantId }, select: { settings: true } });
+      if (!tenant) throw Object.assign(new Error('Tenant not found'), { statusCode: 404 });
+      const updated = await tx.tenant.update({
+        where: { id: tenantId },
+        data: { settings: { ...(tenant.settings as object), ...newSettings } },
+        select: { settings: true },
+      });
+      await enqueueMenuProjection(tx, tenantId);
+      return updated;
     });
+    kickMenuProjectionOutbox();
+    return result;
   },
 
   // Reviews
@@ -79,19 +107,30 @@ export const cmsService = {
     });
   },
   async createReview(tenantId: string, data: any) {
-    return prisma.review.create({
-      data: { ...data, tenantId },
+    const result = await prisma.$transaction(async (tx) => {
+      const created = await tx.review.create({ data: { ...data, tenantId } });
+      await enqueueMenuProjection(tx, tenantId);
+      return created;
     });
+    kickMenuProjectionOutbox();
+    return result;
   },
   async updateReview(tenantId: string, id: string, data: any) {
-    return prisma.review.update({
-      where: { id_tenantId: { id, tenantId } },
-      data,
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.review.update({ where: { id_tenantId: { id, tenantId } }, data });
+      await enqueueMenuProjection(tx, tenantId);
+      return updated;
     });
+    kickMenuProjectionOutbox();
+    return result;
   },
   async deleteReview(tenantId: string, id: string) {
-    return prisma.review.delete({
-      where: { id_tenantId: { id, tenantId } },
+    const result = await prisma.$transaction(async (tx) => {
+      const deleted = await tx.review.delete({ where: { id_tenantId: { id, tenantId } } });
+      await enqueueMenuProjection(tx, tenantId);
+      return deleted;
     });
+    kickMenuProjectionOutbox();
+    return result;
   },
 };

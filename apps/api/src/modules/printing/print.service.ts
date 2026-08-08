@@ -3,6 +3,7 @@
 // ==========================================
 
 import { EventEmitter } from 'events';
+import { Prisma } from '@prisma/client';
 import prisma from '../../config/database';
 import { logger } from '../../utils/logger';
 import {
@@ -17,6 +18,11 @@ import {
   GRILL_STATION_DEPARTMENTS,
   STATION_PRINT_DEPARTMENTS,
 } from '../../utils/department-routing';
+import { enqueuePrintJob, reprintDeadJob } from './print-outbox.service';
+import {
+  type PrintJobListQuery,
+  safePrintFailureCode,
+} from './print-outbox.policy';
 
 // Valid Department enum values from Prisma schema
 const VALID_DEPARTMENTS = ['KITCHEN', 'BAR', 'GRILL', 'PASTRY', 'COLD', 'CASHIER', 'PAKET', 'POS'];
@@ -52,6 +58,47 @@ function resolveLayout(settings: Record<string, any>, printerId: string | undefi
   return { layoutKey, layout: settings.printLayouts?.[layoutKey] || {} };
 }
 
+interface OperationalPrintJobRow {
+  id: string;
+  eventKey: string;
+  status: string;
+  attempts: number;
+  maxAttempts: number;
+  nextAttemptAt: Date;
+  leaseExpiresAt: Date | null;
+  lastError: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  printedAt: Date | null;
+  deadAt: Date | null;
+  retainUntil: Date | null;
+  reprintOfId: string | null;
+  printer: { id: string; name: string } | null;
+  _count?: { attemptsAudit: number };
+}
+
+function operationalPrintJobView(job: OperationalPrintJobRow) {
+  return {
+    id: job.id,
+    eventKey: job.eventKey,
+    status: job.status,
+    attempts: job.attempts,
+    maxAttempts: job.maxAttempts,
+    nextAttemptAt: job.nextAttemptAt,
+    leaseExpiresAt: job.leaseExpiresAt,
+    hasError: Boolean(job.lastError),
+    errorCode: safePrintFailureCode(job.lastError),
+    hasAmbiguousOutcome: (job._count?.attemptsAudit ?? 0) > 0,
+    printer: job.printer,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    printedAt: job.printedAt,
+    deadAt: job.deadAt,
+    retainUntil: job.retainUntil,
+    reprintOfId: job.reprintOfId,
+  };
+}
+
 export const printService = {
   printJobEmitter: new EventEmitter(),
 
@@ -62,13 +109,159 @@ export const printService = {
     });
   },
 
-  async getStatus(tenantId: string) {
+  async getOperationsSummary(tenantId: string) {
     const { getIO } = await import('../../websocket/socket.server');
-    const sockets = await getIO().in(`tenant:${tenantId}:print-agents`).allSockets();
+    const [sockets, grouped, ambiguousJobs, ambiguousAttempts] = await Promise.all([
+      getIO().in(`tenant:${tenantId}:print-agents`).allSockets(),
+      prisma.printJob.groupBy({
+        by: ['status'],
+        where: { tenantId },
+        _count: { _all: true },
+      }),
+      prisma.printJob.count({
+        where: { tenantId, attemptsAudit: { some: { ambiguousAckLoss: true } } },
+      }),
+      prisma.printJobAttempt.count({
+        where: { ambiguousAckLoss: true, job: { tenantId } },
+      }),
+    ]);
+    const counts: Record<string, number> = {
+      PENDING: 0,
+      LEASED: 0,
+      RETRY: 0,
+      PRINTED: 0,
+      DEAD: 0,
+    };
+    for (const row of grouped) counts[row.status] = row._count._all;
     return {
       agentConnected: sockets.size > 0,
       agentCount: sockets.size,
       checkedAt: new Date().toISOString(),
+      outbox: {
+        pending: counts.PENDING,
+        leased: counts.LEASED,
+        retry: counts.RETRY,
+        printed: counts.PRINTED,
+        dead: counts.DEAD,
+        ambiguous: ambiguousJobs,
+        ambiguousAttempts,
+      },
+    };
+  },
+
+  async getStatus(tenantId: string) {
+    return this.getOperationsSummary(tenantId);
+  },
+
+  async listPrintJobs(tenantId: string, query: PrintJobListQuery) {
+    const where: Prisma.PrintJobWhereInput = {
+      tenantId,
+      ...(query.status ? { status: query.status } : {}),
+    };
+    const [total, jobs] = await prisma.$transaction([
+      prisma.printJob.count({ where }),
+      prisma.printJob.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+        select: {
+          id: true,
+          eventKey: true,
+          status: true,
+          attempts: true,
+          maxAttempts: true,
+          nextAttemptAt: true,
+          leaseExpiresAt: true,
+          lastError: true,
+          createdAt: true,
+          updatedAt: true,
+          printedAt: true,
+          deadAt: true,
+          retainUntil: true,
+          reprintOfId: true,
+          printer: { select: { id: true, name: true } },
+          _count: {
+            select: { attemptsAudit: { where: { ambiguousAckLoss: true } } },
+          },
+        },
+      }),
+    ]);
+    return {
+      jobs: jobs.map(operationalPrintJobView),
+      total,
+      page: query.page,
+      limit: query.limit,
+    };
+  },
+
+  async getPrintJob(tenantId: string, jobId: string) {
+    const job = await prisma.printJob.findFirst({
+      where: { id: jobId, tenantId },
+      select: {
+        id: true,
+        eventKey: true,
+        status: true,
+        attempts: true,
+        maxAttempts: true,
+        nextAttemptAt: true,
+        leaseExpiresAt: true,
+        lastError: true,
+        createdAt: true,
+        updatedAt: true,
+        printedAt: true,
+        deadAt: true,
+        retainUntil: true,
+        reprintOfId: true,
+        printer: { select: { id: true, name: true } },
+        attemptsAudit: {
+          orderBy: { attemptNumber: 'asc' },
+          select: {
+            attemptNumber: true,
+            dispatchedAt: true,
+            acknowledgedAt: true,
+            success: true,
+            ambiguousAckLoss: true,
+          },
+        },
+        reprints: {
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            status: true,
+            createdAt: true,
+            printedAt: true,
+            deadAt: true,
+          },
+        },
+        _count: {
+          select: { attemptsAudit: { where: { ambiguousAckLoss: true } } },
+        },
+      },
+    });
+    if (!job) throw Object.assign(new Error('Print job bulunamadı'), { statusCode: 404 });
+    return {
+      ...operationalPrintJobView(job),
+      attemptsAudit: job.attemptsAudit,
+      reprints: job.reprints,
+    };
+  },
+
+  async reprintJob(tenantId: string, jobId: string, requestCommandId: string) {
+    const job = await reprintDeadJob(tenantId, jobId, requestCommandId);
+    const printer = job.printerId
+      ? await prisma.printerConfig.findFirst({
+          where: { id: job.printerId, tenantId },
+          select: { id: true, name: true },
+        })
+      : null;
+    return {
+      requestCommandId,
+      job: operationalPrintJobView({
+        ...job,
+        printer,
+        _count: { attemptsAudit: 0 },
+      }),
     };
   },
 
@@ -96,11 +289,11 @@ export const printService = {
     const { layoutKey, layout: savedLayout } = resolveLayout(settings, printer.id, fallback);
     const layout = normalizeLayout(savedLayout, layoutKey, tenant?.name || 'REST_OTM');
     const jobId = `test-${printer.id}-${Date.now()}`;
-    const { getIO } = await import('../../websocket/socket.server');
-    const io = getIO();
-
-    if (layoutKey === 'KITCHEN' || layoutKey === 'GRILL') {
-      io.to(`tenant:${tenantId}`).emit('print:kitchen', {
+    const eventName = layoutKey === 'KITCHEN' || layoutKey === 'GRILL'
+      ? 'print:kitchen'
+      : 'print:bill';
+    const payload = layoutKey === 'KITCHEN' || layoutKey === 'GRILL'
+      ? {
         jobId,
         department: layoutKey,
         ipAddress: printer.ipAddress,
@@ -113,9 +306,8 @@ export const printService = {
           { menuItemName: 'AYRAN', quantity: 1, price: 60, portionOption: 'Normal', notes: null },
         ],
         layout,
-      });
-    } else {
-      io.to(`tenant:${tenantId}`).emit('print:bill', {
+      }
+      : {
         jobId,
         printer: printer.name,
         ipAddress: printer.ipAddress,
@@ -136,8 +328,16 @@ export const printService = {
         total: 960,
         timestamp: new Date().toISOString(),
         layout,
-      });
-    }
+      };
+    await enqueuePrintJob({
+      id: jobId,
+      tenantId,
+      printerId: printer.id,
+      eventName,
+      eventKey: 'PRINTER_TEST',
+      idempotencyKey: jobId,
+      payload: payload as any,
+    });
 
     return new Promise<{ jobId: string; printer: string; success: boolean }>((resolve, reject) => {
       const eventName = `result:${jobId}`;
@@ -203,9 +403,7 @@ export const printService = {
     const layout = normalizeLayout(savedLayout, layoutKey, tenant?.name || 'REST_OTM');
 
     const jobId = `zreport-${tenantId}-${Date.now()}`;
-    const { getIO } = await import('../../websocket/socket.server');
-
-    getIO().to(`tenant:${tenantId}`).emit('print:zreport', {
+    const payload = {
       jobId,
       printer: printer.name,
       ipAddress: printer.ipAddress,
@@ -220,6 +418,15 @@ export const printService = {
       paymentBreakdown: summary.paymentBreakdown,
       topSellingItems: summary.topSellingItems,
       waiterPerformance: summary.waiterPerformance,
+    };
+    await enqueuePrintJob({
+      id: jobId,
+      tenantId,
+      printerId: printer.id,
+      eventName: 'print:zreport',
+      eventKey: 'Z_REPORT',
+      idempotencyKey: jobId,
+      payload: payload as any,
     });
 
     return new Promise<{ jobId: string; printer: string; success: boolean }>((resolve, reject) => {
@@ -261,15 +468,22 @@ export const printService = {
     const { layoutKey, layout: savedLayout } = resolveLayout(settings, printer.id, fallback);
     const layout = normalizeLayout(savedLayout, layoutKey, tenant?.name || 'REST_OTM');
     const jobId = `calib-${printer.id}-${Date.now()}`;
-    const { getIO } = await import('../../websocket/socket.server');
-
-    getIO().to(`tenant:${tenantId}`).emit('print:calibration', {
+    const payload = {
       jobId,
       printer: printer.name,
       ipAddress: printer.ipAddress,
       port: printer.port,
       layoutKey,
       layout,
+    };
+    await enqueuePrintJob({
+      id: jobId,
+      tenantId,
+      printerId: printer.id,
+      eventName: 'print:calibration',
+      eventKey: 'PRINTER_CALIBRATION',
+      idempotencyKey: jobId,
+      payload: payload as any,
     });
 
     return new Promise<{ jobId: string; printer: string; success: boolean }>((resolve, reject) => {
@@ -489,10 +703,17 @@ export const printService = {
       },
     };
 
-    const { getIO } = await import('../../websocket/socket.server');
-    const io = getIO();
-    io.to(`tenant:${tenantId}`).emit('print:bill', printJob);
-    logger.info(`🧾 Bill print job sent: ${printJob.jobId} → ${printJob.printer}`);
+    await enqueuePrintJob({
+      id: printJob.jobId,
+      tenantId,
+      orderId: order.id,
+      printerId: printer.id,
+      eventName: 'print:bill',
+      eventKey: 'BILL',
+      idempotencyKey: printJob.jobId,
+      payload: printJob as any,
+    });
+    logger.info(`🧾 Bill print job queued: ${printJob.jobId} → ${printJob.printer}`);
 
     // Fire-and-forget: 3 saniye bekle, sonuç gelmezse "queued" döndür
     return new Promise<{
@@ -727,10 +948,17 @@ export const printService = {
       },
     };
 
-    const { getIO } = await import('../../websocket/socket.server');
-    const io = getIO();
-    io.to(`tenant:${tenantId}`).emit('print:bill', printJob);
-    logger.info(`📦 Paket print job sent: ${printJob.jobId} → ${printJob.printer}`);
+    await enqueuePrintJob({
+      id: printJob.jobId,
+      tenantId,
+      orderId: order.id,
+      printerId: printer.id,
+      eventName: 'print:bill',
+      eventKey: 'TAKEAWAY',
+      idempotencyKey: printJob.jobId,
+      payload: printJob as any,
+    });
+    logger.info(`📦 Paket print job queued: ${printJob.jobId} → ${printJob.printer}`);
 
     return new Promise<{
       jobId: string;
@@ -971,9 +1199,20 @@ export const printService = {
       },
     };
 
-    const { getIO } = await import('../../websocket/socket.server');
-    const io = getIO();
-    io.to(`tenant:${tenantId}`).emit('print:kitchen', printJob);
+    await enqueuePrintJob({
+      id: printJob.jobId,
+      tenantId,
+      orderId: order.id,
+      printerId: dbPrinter.id,
+      eventName: 'print:kitchen',
+      eventKey: options?.isCancel
+        ? `ITEM_CANCEL:${department}`
+        : options?.isTreat
+          ? `ITEM_TREAT:${department}`
+          : `MANUAL_STATION:${department}`,
+      idempotencyKey: printJob.jobId,
+      payload: printJob as any,
+    });
 
     logger.info(
       `🍳 ${department} print job: ${printJob.jobId} → ${printerName} (${printerIp}:${printerPort}) | `

@@ -256,7 +256,11 @@ function Assert-RestOtmArtifactManifest {
         }
 
         $extension = [IO.Path]::GetExtension($absolutePath)
-        if ($RequireAuthenticode -and @('.exe', '.dll', '.msi') -contains $extension.ToLowerInvariant()) {
+        $knownPeExtension = @('.exe', '.dll', '.msi', '.node') -contains $extension.ToLowerInvariant()
+        if ($knownPeExtension -and $file.authenticodeRequired -ne $true) {
+            throw "PE dosyasi authenticodeRequired=true olmali: $relativePath"
+        }
+        if ($RequireAuthenticode -and ($knownPeExtension -or $file.authenticodeRequired -eq $true)) {
             if ($file.authenticodeRequired -ne $true) {
                 throw "PE dosyasi authenticodeRequired=true olmali: $relativePath"
             }
@@ -276,6 +280,148 @@ function Assert-RestOtmArtifactManifest {
     }
 
     return $manifest
+}
+
+function Assert-RestOtmInstallerContract {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ContractPath,
+
+        [switch]$RequireProductionReady
+    )
+
+    if (-not (Test-Path -LiteralPath $ContractPath -PathType Leaf)) {
+        throw "Installer contract bulunamadi: $ContractPath"
+    }
+
+    $contract = Get-Content -LiteralPath $ContractPath -Raw | ConvertFrom-Json
+    $requiredScalars = [ordered]@{
+        schema_version = 1
+        canonical_runtime_schema = 'restotm-windows-host-v1'
+        service_name = 'RESTOTMRuntime'
+        bootstrap_executable_relative_path = 'bin/restotm-installer-bootstrap.exe'
+        runtime_config_relative_path = 'config/runtime.json'
+        secret_store_relative_path = 'config/secrets.json'
+        bootstrap_receipt_relative_path = 'config/bootstrap-receipt.json'
+        acl_policy_version = 'restotm-windows-acl-v1'
+        first_run_provisioning = $true
+        uninstall_preserves_customer_data = $true
+        license_public_key_relative_path = 'config/license-public-key.pem'
+    }
+    foreach ($entry in $requiredScalars.GetEnumerator()) {
+        $property = $contract.PSObject.Properties[[string]$entry.Key]
+        if ($null -eq $property -or $property.Value -ne $entry.Value) {
+            throw "Installer contract alani gecersiz: $($entry.Key)"
+        }
+    }
+
+    if ($null -eq $contract.native_bootstrap -or
+        $contract.native_bootstrap.verification_command -ne 'verify-production-contract') {
+        throw 'Native bootstrap capability contract eksik.'
+    }
+    if ($RequireProductionReady -and $contract.native_bootstrap.production_ready -ne $true) {
+        throw 'Native bootstrap production_ready=true degil; installer/preflight basarili sayilamaz.'
+    }
+
+    if ($contract.secrets.schema_version -ne 1 -or
+        $contract.secrets.generated_per_installation -ne $true -or
+        $contract.secrets.protection -ne 'dpapi-local-machine-v1') {
+        throw 'Secret store contract gecersiz.'
+    }
+    $requiredSecrets = @(
+        'databaseUrl',
+        'internalApiToken',
+        'printAgentSecret',
+        'jwtAccessSecret',
+        'jwtRefreshSecret',
+        'backupEncryptionKey',
+        'gatewayControlSecret'
+    )
+    if (($contract.secrets.required_values | ConvertTo-Json -Compress) -ne
+        ($requiredSecrets | ConvertTo-Json -Compress)) {
+        throw 'Secret values map isimleri veya sirasi canonical contract ile uyusmuyor.'
+    }
+
+    $expectedEndpoints = [ordered]@{
+        postgres = @('127.0.0.1', 55432)
+        api = @('127.0.0.1', 4100)
+        admin = @('127.0.0.1', 3100)
+        waiter = @('127.0.0.1', 3200)
+        print_agent = @('127.0.0.1', 4300)
+    }
+    foreach ($entry in $expectedEndpoints.GetEnumerator()) {
+        $endpoint = $contract.network.PSObject.Properties[[string]$entry.Key].Value
+        if ($null -eq $endpoint -or
+            $endpoint.host -ne $entry.Value[0] -or
+            $endpoint.port -ne $entry.Value[1]) {
+            throw "Network contract endpoint gecersiz: $($entry.Key)"
+        }
+    }
+    if ($contract.network.gateway.host -ne '0.0.0.0' -or
+        $contract.network.gateway.port -ne 8787 -or
+        $contract.network.gateway.firewall_profile -ne 'Private' -or
+        $contract.network.gateway.remote_scope -ne 'LocalSubnet') {
+        throw 'Gateway contract yalnizca 0.0.0.0:8787 Private/LocalSubnet olabilir.'
+    }
+
+    $expectedChildren = @(
+        [ordered]@{ name = 'postgres'; role = 'postgres-server'; relative_executable = 'postgres/bin/postgres.exe'; relative_working_directory = 'postgres/bin'; depends_on = @() },
+        [ordered]@{ name = 'local-api'; role = 'local-api'; relative_executable = 'api/restotm-api.exe'; relative_working_directory = 'api'; depends_on = @('postgres') },
+        [ordered]@{ name = 'admin-ui'; role = 'admin-ui'; relative_executable = 'admin/restotm-admin.exe'; relative_working_directory = 'admin'; depends_on = @('local-api') },
+        [ordered]@{ name = 'waiter-ui'; role = 'waiter-ui'; relative_executable = 'waiter/restotm-waiter.exe'; relative_working_directory = 'waiter'; depends_on = @('local-api') },
+        [ordered]@{ name = 'print-agent'; role = 'print-agent'; relative_executable = 'print-agent/restotm-print-agent.exe'; relative_working_directory = 'print-agent'; depends_on = @('local-api') },
+        [ordered]@{ name = 'lan-gateway'; role = 'lan-gateway'; relative_executable = 'gateway/restotm-lan-gateway.exe'; relative_working_directory = 'gateway'; depends_on = @('local-api', 'admin-ui', 'waiter-ui') }
+    )
+    if ($contract.children.Count -ne $expectedChildren.Count) {
+        throw 'Canonical child process sayisi gecersiz.'
+    }
+    for ($index = 0; $index -lt $expectedChildren.Count; $index++) {
+        $actual = $contract.children[$index]
+        $expected = $expectedChildren[$index]
+        foreach ($field in @('name', 'role', 'relative_executable', 'relative_working_directory')) {
+            if ($actual.$field -ne $expected[$field]) {
+                throw "Canonical child contract gecersiz: index=$index field=$field"
+            }
+        }
+        if (($actual.depends_on | ConvertTo-Json -Compress) -ne
+            ($expected.depends_on | ConvertTo-Json -Compress)) {
+            throw "Canonical child dependency contract gecersiz: $($actual.name)"
+        }
+    }
+
+    return $contract
+}
+
+function Assert-RestOtmArtifactContractAlignment {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Manifest,
+
+        [Parameter(Mandatory = $true)]
+        [object]$Contract
+    )
+
+    $expectedRolePaths = [ordered]@{
+        'runtime-service' = 'bin/restotm-runtime-service.exe'
+        'installer-bootstrap' = [string]$Contract.bootstrap_executable_relative_path
+        'postgres-server' = 'postgres/bin/postgres.exe'
+        'postgres-client' = 'postgres/bin/pg_dump.exe'
+        'local-api' = 'api/restotm-api.exe'
+        'admin-ui' = 'admin/restotm-admin.exe'
+        'waiter-ui' = 'waiter/restotm-waiter.exe'
+        'print-agent' = 'print-agent/restotm-print-agent.exe'
+        'lan-gateway' = 'gateway/restotm-lan-gateway.exe'
+        'license-public-key' = [string]$Contract.license_public_key_relative_path
+    }
+    foreach ($entry in $expectedRolePaths.GetEnumerator()) {
+        $matches = @($Manifest.files | Where-Object role -eq $entry.Key)
+        if ($matches.Count -ne 1 -or
+            ([string]$matches[0].relativePath).Replace('\', '/') -ne $entry.Value) {
+            throw "Artifact role/path canonical contract ile uyusmuyor: $($entry.Key)"
+        }
+    }
 }
 
 function Set-RestOtmDirectoryAcl {
@@ -313,5 +459,7 @@ Export-ModuleMember -Function @(
     'Protect-RestOtmMachineSecret',
     'Write-RestOtmAtomicUtf8File',
     'Assert-RestOtmArtifactManifest',
+    'Assert-RestOtmInstallerContract',
+    'Assert-RestOtmArtifactContractAlignment',
     'Set-RestOtmDirectoryAcl'
 )

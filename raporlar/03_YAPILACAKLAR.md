@@ -162,7 +162,17 @@ kullanılabilir; istenmiyorsa kaldırılabilir.
 
 ## Y-16 · Lisans control-plane kalıcı güvenlik sertleştirmesi
 
-**Öncelik:** P1 — saha kurulumundan önce tasarım kararı ve migration gerekir.
+**Durum (08.08.2026):** Expand safhası uygulandı. Yeni anahtarlar yalnız
+rotasyonlu pepper HMAC hash'i + last4 olarak saklanıyor; eski kayıtlar için
+backfill CLI/preflight var; tenant başına tek non-revoked seat partial unique
+index ile korunuyor. Audit/tombstone koruması önceki kilometre taşında
+tamamlandı.
+
+**Kalan dış deploy işi:** Cloud DB'de backfill çalıştır, plaintext legacy kayıt
+sayısını sıfır olarak doğrula ve ayrı contract migration ile eski `key` kolonunu
+kaldır. Bu doğrulama yapılmadan kolonu körlemesine düşürmek yasaktır.
+
+**Öncelik:** P1 — saha kurulumundan önce contract safhası tamamlanmalıdır.
 
 1. `License.key` veritabanında plaintext tutulmamalı. Ayrı ve rotasyonlu bir
    sunucu pepper'ı ile HMAC-SHA-256 `keyHash`, maskeleme için `keyLast4`
@@ -181,6 +191,38 @@ kullanılabilir; istenmiyorsa kaldırılabilir.
 **Bitti sayılır:** DB salt-okunur sızıntısı kullanılabilir lisans anahtarı
 vermiyor; tenant silme audit'i silemiyor; eşzamanlı iki create iş kuralını
 ihlal edemiyor.
+
+---
+
+## Y-18 · Masa QR menüsündeki yerel “garson çağır” sözleşmesini tamamla
+
+**Bulgu:** Mevcut `MenuClient` düğmesi korunuyor ancak sayfa `tableId` değerini
+client'a aktarmıyor. Cloud public API operasyonel waiter write route'u bilerek
+barındırmıyor; HTTPS cloud sayfadan ham HTTP LAN API'ye fetch de tarayıcı mixed
+content politikası nedeniyle güvenilir değildir.
+
+**Çözüm yönü:** Mevcut menu UI'ını değiştirmeden yerel gateway altında çalışan
+menu runtime/route'u, masa QR'ında imzalı veya tahmin edilemez masa bağlamı ve
+same-origin `/api/public/waiter/call/:slug` kullan. Cloud yalnız sanitize menü
+projection verisini döndürsün; waiter çağrısı lokal Socket.IO'da kalsın.
+
+**Bitti sayılır:** Gerçek telefonda yerel QR açılıyor, masa kimliği doğrulanıyor,
+düğme tek lokal çağrı üretiyor ve WAN kesikken yerel cache/fallback davranışı
+açıkça test ediliyor.
+
+---
+
+## Y-19 · Native Windows production blocker'larını kapat
+
+- Rust crate'i Windows target'ta derle ve unit/integration testlerini çalıştır.
+- Native ACL + `CryptProtectData` provisioning backend'ini tamamla.
+- Bundled PostgreSQL/pg_dump/pg_restore ve tüm app launcher PE'lerini üret.
+- Authenticode ile tüm EXE/DLL/NODE/installer artifact'lerini imzala.
+- Temiz Windows 11 VM'de SCM, Job Object, reboot, repair/uninstall ve firewall
+  kabul matrisini geçir.
+
+Kaynak politika testleri bu maddelerin yerine geçmez; gerçek Windows kanıtı
+olmadan installer production-ready sayılamaz.
 
 ---
 

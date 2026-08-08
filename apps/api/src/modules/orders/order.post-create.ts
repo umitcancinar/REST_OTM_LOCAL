@@ -1,6 +1,6 @@
 import type { Server } from 'socket.io';
 import { inventoryService } from '../inventory/inventory.service';
-import { printService } from '../printing/print.service';
+import { kickPrintOutbox } from '../printing/print-outbox.service';
 import { logger } from '../../utils/logger';
 import {
   resolvePreparationDepartment,
@@ -48,12 +48,10 @@ export async function processCreatedOrder(
     STATION_PRINT_DEPARTMENTS.has(effectiveDept as any),
   );
 
-  if (printToKitchen && stationItems.length > 0) {
-    const itemIds = stationItems.map(({ item }) => item.id);
-    void printService.printProductionStations(tenantId, order.id, itemIds).then((result) => {
-      if (result.queued) logger.error(`Otomatik mutfak baskısı kısmen/tamamen başarısız: ${result.error}`);
-    }).catch((error) => logger.error('Otomatik mutfak baskısı başlatılamadı:', error));
-  }
+  // Automatic station jobs are already committed atomically with the order.
+  // This only wakes the worker; replaying an idempotent command cannot enqueue
+  // or emit a second ticket.
+  if (printToKitchen && stationItems.length > 0) kickPrintOutbox();
 
   // Emit kitchen display event for KITCHEN + GRILL items only (not BAR/beverages)
   const kitchenDisplayItems = stationItems.map(({ item }) => item);

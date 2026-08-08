@@ -1,0 +1,16 @@
+{
+  "name": "@rest-otm/gateway",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Fail-closed single-origin LAN gateway for the local REST_OTM runtime",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/app.js",
+    "test": "tsc -p tsconfig.json && node --test test/*.test.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}

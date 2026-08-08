@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "installation_id": "11111111-2222-3333-4444-555555555555",
+  "install_root": "C:\\Program Files\\RESTOTM",
+  "program_data_root": "C:\\ProgramData\\RESTOTM",
+  "secret_store": "C:\\ProgramData\\RESTOTM\\config\\secrets.json",
+  "bootstrap_receipt": "C:\\ProgramData\\RESTOTM\\config\\bootstrap-receipt.json",
+  "health_file": "C:\\ProgramData\\RESTOTM\\runtime\\health.json",
+  "log_directory": "C:\\ProgramData\\RESTOTM\\logs",
+  "network": {
+    "postgres": { "host": "127.0.0.1", "port": 55432 },
+    "api": { "host": "127.0.0.1", "port": 4100 },
+    "admin": { "host": "127.0.0.1", "port": 3100 },
+    "waiter": { "host": "127.0.0.1", "port": 3200 },
+    "print_agent": { "host": "127.0.0.1", "port": 4300 },
+    "gateway": {
+      "host": "0.0.0.0",
+      "port": 8787,
+      "firewall_profile": "Private",
+      "remote_scope": "LocalSubnet"
+    }
+  },
+  "restart_policy": {
+    "initial_delay_ms": 1000,
+    "maximum_delay_ms": 60000,
+    "stable_reset_ms": 120000,
+    "crash_window_ms": 600000,
+    "maximum_crashes_in_window": 5,
+    "crash_loop_quarantine_ms": 300000
+  },
+  "children": [
+    {
+      "name": "postgres",
+      "executable": "C:\\Program Files\\RESTOTM\\postgres\\bin\\postgres.exe",
+      "working_directory": "C:\\Program Files\\RESTOTM\\postgres\\bin",
+      "arguments": [
+        "-D",
+        "C:\\ProgramData\\RESTOTM\\data\\postgres",
+        "-p",
+        "55432",
+        "-h",
+        "127.0.0.1"
+      ],
+      "environment": {},
+      "file_environment": {},
+      "secret_environment": {},
+      "depends_on": [],
+      "essential": true,
+      "shutdown": { "type": "terminate", "grace_ms": 30000 }
+    },
+    {
+      "name": "local-api",
+      "executable": "C:\\Program Files\\RESTOTM\\api\\restotm-api.exe",
+      "working_directory": "C:\\Program Files\\RESTOTM\\api",
+      "arguments": [],
+      "environment": {
+        "NODE_ENV": "production",
+        "RUNTIME_MODE": "local",
+        "BIND_HOST": "127.0.0.1",
+        "PORT": "4100",
+        "LOCAL_LICENSE_SERVER_URL": "https://YOUR-RENDER-CONTROL-PLANE.example",
+        "LOCAL_POSTGRES_DATA_DIR": "C:\\ProgramData\\RESTOTM\\data\\postgres",
+        "LOCAL_BACKUP_DIR": "C:\\ProgramData\\RESTOTM\\backups",
+        "LOCAL_LICENSE_DATA_DIR": "C:\\ProgramData\\RESTOTM\\data\\license",
+        "PG_DUMP_PATH": "C:\\Program Files\\RESTOTM\\postgres\\bin\\pg_dump.exe",
+        "BACKUP_RETENTION_DAILY": "30",
+        "BACKUP_RETENTION_WEEKLY": "12",
+        "BACKUP_RETENTION_MONTHLY": "12"
+      },
+      "file_environment": {
+        "LOCAL_LICENSE_PUBLIC_KEY": "C:\\Program Files\\RESTOTM\\config\\license-public-key.pem"
+      },
+      "secret_environment": {
+        "DATABASE_URL": "databaseUrl",
+        "JWT_ACCESS_SECRET": "jwtAccessSecret",
+        "JWT_REFRESH_SECRET": "jwtRefreshSecret",
+        "PRINT_AGENT_SECRET": "printAgentSecret"
+      },
+      "depends_on": ["postgres"],
+      "essential": true,
+      "shutdown": {
+        "type": "http",
+        "port": 4100,
+        "path": "/internal/runtime/shutdown",
+        "token_secret": "internalApiToken",
+        "grace_ms": 30000
+      }
+    },
+    {
+      "name": "admin-ui",
+      "executable": "C:\\Program Files\\RESTOTM\\admin\\restotm-admin.exe",
+      "working_directory": "C:\\Program Files\\RESTOTM\\admin",
+      "arguments": [],
+      "environment": { "NODE_ENV": "production", "HOSTNAME": "127.0.0.1", "PORT": "3100" },
+      "file_environment": {},
+      "secret_environment": {},
+      "depends_on": ["local-api"],
+      "essential": true,
+      "shutdown": { "type": "terminate", "grace_ms": 5000 }
+    },
+    {
+      "name": "waiter-ui",
+      "executable": "C:\\Program Files\\RESTOTM\\waiter\\restotm-waiter.exe",
+      "working_directory": "C:\\Program Files\\RESTOTM\\waiter",
+      "arguments": [],
+      "environment": { "NODE_ENV": "production", "HOSTNAME": "127.0.0.1", "PORT": "3200" },
+      "file_environment": {},
+      "secret_environment": {},
+      "depends_on": ["local-api"],
+      "essential": true,
+      "shutdown": { "type": "terminate", "grace_ms": 5000 }
+    },
+    {
+      "name": "print-agent",
+      "executable": "C:\\Program Files\\RESTOTM\\print-agent\\restotm-print-agent.exe",
+      "working_directory": "C:\\Program Files\\RESTOTM\\print-agent",
+      "arguments": [],
+      "environment": { "PRINT_AGENT_WS_URL": "http://127.0.0.1:4100" },
+      "file_environment": {},
+      "secret_environment": { "PRINT_AGENT_SECRET": "printAgentSecret" },
+      "depends_on": ["local-api"],
+      "essential": false,
+      "shutdown": { "type": "terminate", "grace_ms": 5000 }
+    },
+    {
+      "name": "lan-gateway",
+      "executable": "C:\\Program Files\\RESTOTM\\gateway\\restotm-lan-gateway.exe",
+      "working_directory": "C:\\Program Files\\RESTOTM\\gateway",
+      "arguments": [],
+      "environment": {
+        "BIND_HOST": "0.0.0.0",
+        "PORT": "8787",
+        "API_UPSTREAM": "http://127.0.0.1:4100",
+        "ADMIN_UPSTREAM": "http://127.0.0.1:3100",
+        "WAITER_UPSTREAM": "http://127.0.0.1:3200"
+      },
+      "file_environment": {},
+      "secret_environment": { "GATEWAY_CONTROL_SECRET": "gatewayControlSecret" },
+      "depends_on": ["local-api", "admin-ui", "waiter-ui"],
+      "essential": true,
+      "shutdown": { "type": "terminate", "grace_ms": 5000 }
+    }
+  ]
+}

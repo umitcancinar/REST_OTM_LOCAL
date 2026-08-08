@@ -8,6 +8,7 @@
     "start": "prisma migrate deploy && node dist/app.js",
     "start:cloud": "prisma migrate deploy && node dist/cloud.js",
     "start:local": "prisma migrate deploy && node dist/local.js",
+    "license-keys:backfill": "ts-node src/modules/license-admin/license-key-backfill.ts",
     "lint": "eslint src/",
     "test": "tsc && node --test test/*.test.js",
     "typecheck": "tsc --noEmit"
@@ -28,6 +29,7 @@
     "ioredis": "^5.4.1",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
+    "qrcode": "1.5.4",
     "socket.io": "^4.8.1",
     "ts-node": "^10.9.2",
     "zod": "^3.23.8"
@@ -40,6 +42,7 @@
     "@types/jsonwebtoken": "^9.0.7",
     "@types/morgan": "^1.9.9",
     "@types/node": "^22.10.0",
+    "@types/qrcode": "1.5.6",
     "eslint": "^9",
     "prisma": "^6.3.0",
     "ts-node-dev": "^2.0.0",

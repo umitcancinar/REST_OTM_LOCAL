@@ -57,7 +57,13 @@ export interface ServerToClientEvents {
     department: string;
     escposData: Buffer | string;
   }) => void;
-  'print:result': (data: { jobId: string; success: boolean; error?: string }) => void;
+  'print:result': (data: {
+    jobId: string;
+    attemptNumber?: number;
+    dispatchToken?: string;
+    success: boolean;
+    error?: string;
+  }) => void;
 
   // Stock alerts
   'inventory:stock_alert': (data: { alerts: unknown[] }) => void;

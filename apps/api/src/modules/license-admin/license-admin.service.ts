@@ -1,12 +1,14 @@
 import { Prisma, type LicenseAuditAction } from '@prisma/client';
 import prisma from '../../config/database';
+import { cloudEnv } from '../../config/env.cloud';
+import { createLicenseKeyMaterial } from '../license/license-key.policy';
 import {
   assertNotRevoked,
   extendExpiry,
   generateLicenseKey,
   initialExpiry,
   lifecycleError,
-  maskLicenseKey,
+  maskLicenseKeyLast4,
 } from './license-admin.policy';
 import type {
   CreateLicenseInput,
@@ -17,11 +19,35 @@ import type {
 } from './license-admin.validation';
 
 const tenantSelect = { id: true, name: true, slug: true } as const;
+const presentableLicenseSelect = {
+  id: true,
+  tenantId: true,
+  keyLast4: true,
+  status: true,
+  hardwareIdShort: true,
+  activatedAt: true,
+  expiresAt: true,
+  graceDays: true,
+  features: true,
+  lastHeartbeatAt: true,
+  lastHeartbeatIp: true,
+  appVersion: true,
+  suspiciousCount: true,
+  lastSuspiciousAt: true,
+  notes: true,
+  createdAt: true,
+  updatedAt: true,
+  tenant: { select: tenantSelect },
+} as const;
+const licenseLifecycleSelect = {
+  ...presentableLicenseSelect,
+  hardwareId: true,
+} as const;
 
 type PresentableLicense = {
   id: string;
   tenantId: string;
-  key: string;
+  keyLast4: string | null;
   status: string;
   hardwareIdShort: string | null;
   activatedAt: Date | null;
@@ -40,12 +66,12 @@ type PresentableLicense = {
 };
 
 function present(license: PresentableLicense) {
-  const { key, tenant, ...safe } = license;
+  const { keyLast4, tenant, ...safe } = license;
   return {
     ...safe,
     restaurantName: tenant.name,
     tenantSlug: tenant.slug,
-    keyMasked: maskLicenseKey(key),
+    keyMasked: maskLicenseKeyLast4(keyLast4),
   };
 }
 
@@ -81,7 +107,7 @@ async function serializable<T>(work: (tx: Prisma.TransactionClient) => Promise<T
 async function requireLicense(tx: Prisma.TransactionClient, id: string) {
   const license = await tx.license.findUnique({
     where: { id },
-    include: { tenant: { select: tenantSelect } },
+    select: licenseLifecycleSelect,
   });
   if (!license) throw lifecycleError('Lisans bulunamadı.', 404);
   return license;
@@ -109,7 +135,7 @@ export const licenseAdminService = {
         skip,
         take: input.limit,
         orderBy: { createdAt: 'desc' },
-        include: { tenant: { select: tenantSelect } },
+        select: presentableLicenseSelect,
       }),
       prisma.license.count({ where }),
     ]);
@@ -119,8 +145,8 @@ export const licenseAdminService = {
   async detail(id: string) {
     const license = await prisma.license.findUnique({
       where: { id },
-      include: {
-        tenant: { select: tenantSelect },
+      select: {
+        ...presentableLicenseSelect,
         auditLogs: { orderBy: { timestamp: 'desc' }, take: 100 },
       },
     });
@@ -137,6 +163,7 @@ export const licenseAdminService = {
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const key = generateLicenseKey();
+      const keyMaterial = createLicenseKeyMaterial(key, cloudEnv.LICENSE_KEY_PEPPER_RING);
       try {
         const created = await prisma.$transaction(async (tx) => {
           const tenant = await tx.tenant.findUnique({
@@ -149,13 +176,15 @@ export const licenseAdminService = {
           const license = await tx.license.create({
             data: {
               tenantId: input.tenantId,
-              key,
+              keyHash: keyMaterial.keyHash,
+              keyLast4: keyMaterial.keyLast4,
+              keyPepperVersion: keyMaterial.keyPepperVersion,
               expiresAt,
               graceDays: input.graceDays,
               features: input.features,
               notes: input.notes,
             },
-            include: { tenant: { select: tenantSelect } },
+            select: presentableLicenseSelect,
           });
           await audit(tx, license.id, operatorId, 'CREATED', {
             tenantId: input.tenantId,
@@ -169,7 +198,17 @@ export const licenseAdminService = {
       } catch (error) {
         const collision =
           error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
-        if (!collision || attempt === 4) throw error;
+        if (!collision) throw error;
+        const occupiedSeat = await prisma.license.findFirst({
+          where: { tenantId: input.tenantId, status: { not: 'REVOKED' } },
+          select: { id: true },
+        });
+        if (occupiedSeat) {
+          throw lifecycleError(
+            'Bu restoranın zaten iptal edilmemiş bir lokal sunucu lisansı var.',
+          );
+        }
+        if (attempt === 4) throw error;
       }
     }
     throw new Error('Lisans anahtarı üretilemedi');
@@ -182,7 +221,7 @@ export const licenseAdminService = {
       const updated = await tx.license.update({
         where: { id },
         data: input,
-        include: { tenant: { select: tenantSelect } },
+        select: presentableLicenseSelect,
       });
       await audit(tx, id, operatorId, 'UPDATED', {
         before: {
@@ -208,7 +247,7 @@ export const licenseAdminService = {
       const updated = await tx.license.update({
         where: { id },
         data: { expiresAt },
-        include: { tenant: { select: tenantSelect } },
+        select: presentableLicenseSelect,
       });
       await audit(tx, id, operatorId, 'EXTENDED', {
         days: input.days,
@@ -228,7 +267,7 @@ export const licenseAdminService = {
       const updated = await tx.license.update({
         where: { id },
         data: { status: 'SUSPENDED' },
-        include: { tenant: { select: tenantSelect } },
+        select: presentableLicenseSelect,
       });
       await audit(tx, id, operatorId, 'SUSPENDED', {
         previousStatus: current.status,
@@ -250,7 +289,7 @@ export const licenseAdminService = {
       const updated = await tx.license.update({
         where: { id },
         data: { status },
-        include: { tenant: { select: tenantSelect } },
+        select: presentableLicenseSelect,
       });
       await audit(tx, id, operatorId, 'RESUMED', {
         status,
@@ -267,7 +306,7 @@ export const licenseAdminService = {
       const updated = await tx.license.update({
         where: { id },
         data: { status: 'REVOKED' },
-        include: { tenant: { select: tenantSelect } },
+        select: presentableLicenseSelect,
       });
       await audit(tx, id, operatorId, 'REVOKED', {
         previousStatus: current.status,
@@ -294,7 +333,7 @@ export const licenseAdminService = {
           lastHeartbeatIp: null,
           appVersion: null,
         },
-        include: { tenant: { select: tenantSelect } },
+        select: presentableLicenseSelect,
       });
       await audit(tx, id, operatorId, 'ACTIVATION_RESET', {
         previousStatus: current.status,
@@ -329,7 +368,7 @@ export const licenseAdminService = {
           lastHeartbeatIp: null,
           appVersion: null,
         },
-        include: { tenant: { select: tenantSelect } },
+        select: presentableLicenseSelect,
       });
       await audit(tx, id, operatorId, 'REBOUND', {
         previousHardwareIdShort: current.hardwareIdShort,

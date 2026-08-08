@@ -84,21 +84,42 @@ export default function ReceiptPreview({ type, layout, onMarginChange }: Receipt
   useEffect(() => {
     window.addEventListener('pointermove', handleMove);
     window.addEventListener('pointerup', stopDrag);
+    window.addEventListener('pointercancel', stopDrag);
     return () => {
       window.removeEventListener('pointermove', handleMove);
       window.removeEventListener('pointerup', stopDrag);
+      window.removeEventListener('pointercancel', stopDrag);
     };
   }, [handleMove, stopDrag]);
 
-  const startDrag = (edge: 'top' | 'bottom') => (event: React.PointerEvent) => {
+  const startDrag = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
     if (!onMarginChange) return;
+    const edge = event.currentTarget.dataset.edge;
+    if (edge !== 'top' && edge !== 'bottom') return;
     event.preventDefault();
     dragRef.current = {
       edge,
       startY: event.clientY,
       startMm: edge === 'top' ? layout.topMarginMm : layout.bottomMarginMm,
     };
-  };
+  }, [layout.bottomMarginMm, layout.topMarginMm, onMarginChange]);
+
+  const adjustMargin = useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (!onMarginChange) return;
+    const edge = event.currentTarget.dataset.edge;
+    if (edge !== 'top' && edge !== 'bottom') return;
+    const current = edge === 'top' ? layout.topMarginMm : layout.bottomMarginMm;
+    const max = edge === 'top' ? MAX_TOP_MARGIN_MM : MAX_BOTTOM_MARGIN_MM;
+    let value = current;
+    if (event.key === 'ArrowUp' || event.key === 'ArrowRight') value += 0.5;
+    else if (event.key === 'ArrowDown' || event.key === 'ArrowLeft') value -= 0.5;
+    else if (event.key === 'Home') value = 0;
+    else if (event.key === 'End') value = max;
+    else return;
+    event.preventDefault();
+    value = Math.min(max, Math.max(0, value));
+    onMarginChange(edge === 'top' ? { topMarginMm: value } : { bottomMarginMm: value });
+  }, [layout.bottomMarginMm, layout.topMarginMm, onMarginChange]);
 
   const handleStyle = (edge: 'top' | 'bottom'): React.CSSProperties => ({
     position: 'absolute',
@@ -110,6 +131,9 @@ export default function ReceiptPreview({ type, layout, onMarginChange }: Receipt
     background: 'repeating-linear-gradient(90deg,#38bdf8 0 6px,transparent 6px 12px)',
     opacity: 0.9,
     touchAction: 'none',
+    padding: 0,
+    border: 0,
+    outlineOffset: 3,
   });
 
   return (
@@ -152,7 +176,22 @@ export default function ReceiptPreview({ type, layout, onMarginChange }: Receipt
           border: '1px solid #e2e8f0',
         }}
       >
-        <div title={`Üst boşluk: ${layout.topMarginMm} mm`} style={handleStyle('top')} onPointerDown={startDrag('top')} />
+        <button
+          type="button"
+          role="slider"
+          data-edge="top"
+          aria-label="Üst fiş boşluğu"
+          aria-orientation="vertical"
+          aria-valuemin={0}
+          aria-valuemax={MAX_TOP_MARGIN_MM}
+          aria-valuenow={layout.topMarginMm}
+          aria-valuetext={`${layout.topMarginMm} milimetre`}
+          title={`Üst boşluk: ${layout.topMarginMm} mm`}
+          style={handleStyle('top')}
+          onPointerDown={startDrag}
+          onKeyDown={adjustMargin}
+          disabled={!onMarginChange}
+        />
 
         {/* Kagidin ustundeki gercek bosluk */}
         <div style={{ height: Math.max(0, doc.topMarginMm) * pxPerMm }} />
@@ -194,11 +233,26 @@ export default function ReceiptPreview({ type, layout, onMarginChange }: Receipt
         <div style={{ height: Math.max(0, doc.bottomMarginMm) * pxPerMm }} />
         <div style={{ borderTop: '2px dashed #94a3b8' }} />
 
-        <div title={`Alt boşluk: ${layout.bottomMarginMm} mm`} style={handleStyle('bottom')} onPointerDown={startDrag('bottom')} />
+        <button
+          type="button"
+          role="slider"
+          data-edge="bottom"
+          aria-label="Alt fiş boşluğu"
+          aria-orientation="vertical"
+          aria-valuemin={0}
+          aria-valuemax={MAX_BOTTOM_MARGIN_MM}
+          aria-valuenow={layout.bottomMarginMm}
+          aria-valuetext={`${layout.bottomMarginMm} milimetre`}
+          title={`Alt boşluk: ${layout.bottomMarginMm} mm`}
+          style={handleStyle('bottom')}
+          onPointerDown={startDrag}
+          onKeyDown={adjustMargin}
+          disabled={!onMarginChange}
+        />
       </div>
 
       <p style={{ fontSize: '0.7rem', color: '#64748b', textAlign: 'center', margin: 0 }}>
-        Mavi şeritleri sürükleyerek üst ({layout.topMarginMm} mm) ve alt ({layout.bottomMarginMm} mm) boşluğu ayarla.
+        Mavi şeritleri sürükleyerek veya ok tuşlarıyla üst ({layout.topMarginMm} mm) ve alt ({layout.bottomMarginMm} mm) boşluğu ayarla.
         Kesik çizgi kağıdın kesildiği yerdir.
       </p>
     </div>

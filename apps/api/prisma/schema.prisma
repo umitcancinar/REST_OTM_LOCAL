@@ -44,6 +44,9 @@ model Tenant {
   orders         Order[]
   orderCounters  OrderCounter[]
   orderCommands  OrderCommand[]
+  printJobs      PrintJob[]
+  menuProjectionOutbox MenuProjectionOutbox[]
+  menuProjectionSequence MenuProjectionSequence?
   inventoryItems InventoryItem[]
   recipes        Recipe[]
   wasteLogs      WasteLog[]
@@ -113,9 +116,18 @@ enum LicenseStatus {
 model License {
   id       String        @id @default(cuid())
   tenantId String
-  /** Musteriye verilen anahtar: RSTO-XXXX-XXXX-XXXX-XXXX */
-  key      String        @unique
-  status   LicenseStatus @default(PENDING)
+  /**
+   * Gecis alani: eski kurulumlar backfill edilene kadar "key" kolonuna
+   * maplenir. Yeni lisanslar buraya plaintext yazmaz. Backfill preflight'i
+   * sifira ulastiktan sonraki contract migration'inda tamamen kaldirilacak.
+   */
+  legacyKey        String? @unique @map("key")
+  /** Rotasyonlu server pepper ile HMAC-SHA-256; ham anahtar geri uretilmez. */
+  keyHash          String? @unique @db.Char(64)
+  keyPepperVersion String? @db.VarChar(32)
+  /** Yalniz maskeleme/destek gorunumu icin; kimlik dogrulamada kullanilmaz. */
+  keyLast4         String? @db.Char(4)
+  status           LicenseStatus @default(PENDING)
 
   /** Baglandigi makinenin parmak izi. Null ise henuz aktive edilmemis.
    *  Ikinci bir makinede ayni anahtarla aktivasyon denendiginde burasi
@@ -307,6 +319,71 @@ model MenuItem {
   @@map("menu_items")
 }
 
+enum MenuProjectionOutboxStatus {
+  PENDING
+  LEASED
+  RETRY
+  ACKED
+  DEAD
+}
+
+/** Local-only transactional full-snapshot publication outbox. */
+model MenuProjectionOutbox {
+  id             String                     @id @default(cuid())
+  tenantId       String
+  version        Int
+  checksum       String                     @db.Char(64)
+  payload        Json
+  status         MenuProjectionOutboxStatus @default(PENDING)
+  attempts       Int                        @default(0)
+  maxAttempts    Int                        @default(12)
+  nextAttemptAt  DateTime                   @default(now())
+  leaseOwner     String?                    @db.VarChar(96)
+  leaseToken     String?                    @db.VarChar(64)
+  leaseExpiresAt DateTime?
+  lastError      String?                    @db.VarChar(1000)
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+  acknowledgedAt DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, version])
+  @@index([status, nextAttemptAt])
+  @@index([status, leaseExpiresAt])
+  @@index([tenantId, createdAt])
+  @@map("menu_projection_outbox")
+}
+
+/** Local-only monotonic publication sequence; incremented in the mutation tx. */
+model MenuProjectionSequence {
+  tenantId String   @id
+  version  Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@map("menu_projection_sequences")
+}
+
+/** Cloud-only read projection. It has deliberately no FK to operational Tenant. */
+model MenuPublication {
+  tenantId     String   @id
+  publicId     String   @unique @db.VarChar(64)
+  slug         String   @unique @db.VarChar(128)
+  customDomain String?  @unique @db.VarChar(253)
+  version      Int
+  sourceChecksum String @db.Char(64)
+  checksum     String   @db.Char(64)
+  payload      Json
+  publishedAt  DateTime @default(now())
+  disabledAt   DateTime?
+  updatedAt    DateTime @updatedAt
+
+  @@index([checksum])
+  @@map("menu_publications")
+}
+
 // ─── TABLES ────────────────────────────────────────
 
 enum TableStatus {
@@ -411,6 +488,7 @@ model Order {
   waiter    User?              @relation("WaiterOrders", fields: [waiterId], references: [id])
   subChecks SubCheck[]
   idempotencyCommands OrderCommand[]
+  printJobs PrintJob[]
 
   @@index([tenantId])
   @@index([tableId])
@@ -602,9 +680,86 @@ model PrinterConfig {
   updatedAt   DateTime   @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  printJobs PrintJob[]
 
   @@index([tenantId])
   @@map("printer_configs")
+}
+
+enum PrintJobStatus {
+  PENDING
+  LEASED
+  RETRY
+  PRINTED
+  DEAD
+}
+
+/**
+ * Durable print outbox. payload is the exact Socket.IO event snapshot consumed
+ * by the existing print-agent renderer; receipt/layout behavior stays frozen at
+ * enqueue time. Physical exactly-once is impossible across printer-write/ACK
+ * crashes, so ambiguous lease recovery is retained in attempt audit rows.
+ */
+model PrintJob {
+  id             String         @id @default(cuid())
+  tenantId       String
+  orderId        String?
+  printerId      String?
+  eventName      String         @db.VarChar(64)
+  eventKey       String         @db.VarChar(96)
+  idempotencyKey String         @db.VarChar(200)
+  payload        Json
+  status         PrintJobStatus @default(PENDING)
+  attempts       Int            @default(0)
+  maxAttempts    Int            @default(8)
+  nextAttemptAt  DateTime       @default(now())
+  leaseOwner     String?        @db.VarChar(96)
+  leaseToken     String?        @db.VarChar(64)
+  leaseExpiresAt DateTime?
+  lastError      String?        @db.VarChar(1000)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  printedAt      DateTime?
+  deadAt         DateTime?
+  retainUntil    DateTime?
+  reprintOfId    String?
+
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  order     Order?         @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  printer   PrinterConfig? @relation(fields: [printerId], references: [id], onDelete: SetNull)
+  attemptsAudit PrintJobAttempt[]
+  reprintOf  PrintJob?     @relation("PrintJobReprints", fields: [reprintOfId], references: [id], onDelete: SetNull)
+  reprints   PrintJob[]    @relation("PrintJobReprints")
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([status, nextAttemptAt])
+  @@index([status, leaseExpiresAt])
+  @@index([tenantId, status, createdAt])
+  @@index([orderId, eventKey])
+  @@index([printerId, status])
+  @@index([retainUntil])
+  @@index([reprintOfId])
+  @@map("print_jobs")
+}
+
+model PrintJobAttempt {
+  id               String   @id @default(cuid())
+  jobId            String
+  attemptNumber    Int
+  leaseOwner       String   @db.VarChar(96)
+  dispatchToken    String   @db.VarChar(64)
+  dispatchedAt     DateTime @default(now())
+  acknowledgedAt   DateTime?
+  success          Boolean?
+  error            String?  @db.VarChar(1000)
+  ambiguousAckLoss Boolean  @default(false)
+
+  job PrintJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, attemptNumber])
+  @@unique([jobId, dispatchToken])
+  @@index([jobId, dispatchedAt])
+  @@map("print_job_attempts")
 }
 
 // ─── CMS & MARKETING (SITE SHOWCASE) ───────────────

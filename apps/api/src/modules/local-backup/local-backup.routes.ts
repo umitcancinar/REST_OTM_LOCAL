@@ -1,6 +1,10 @@
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
-import { LocalBackupError, LocalBackupRuntime } from './local-backup.runtime';
+import {
+  backupStoredSha256,
+  LocalBackupError,
+  LocalBackupRuntime,
+} from './local-backup.runtime';
 
 /**
  * Lisans kilitliyken acik kalmasi guvenli olan yedek endpoint'leri.
@@ -97,7 +101,7 @@ export function createLocalBackupRouter(
       const download = await runtime.getVerifiedDownload(backupId);
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('X-Content-Type-Options', 'nosniff');
-      res.setHeader('X-Rest-Otm-Backup-Sha256', download.manifest.sha256);
+      res.setHeader('X-Rest-Otm-Backup-Sha256', backupStoredSha256(download.manifest));
       res.download(
         download.absolutePath,
         download.manifest.fileName,

@@ -8,6 +8,7 @@ import bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import { sharedEnv } from '../../config/env.shared';
 import { addMonthsToExpiry } from '../../utils/subscription';
+import { runTenantPublicProjectionHook } from '../publication-contract/menu-projection.hook';
 
 export const tenantService = {
   async findAll() {
@@ -62,6 +63,7 @@ export const tenantService = {
         });
         logger.info(`Owner created for tenant ${tenant.slug} (${adminEmail})`);
       }
+      await runTenantPublicProjectionHook(tx, tenant.id);
       
       logger.info(`Tenant created: ${tenant.name} (${tenant.slug})`);
       return tenant;
@@ -77,27 +79,24 @@ export const tenantService = {
     // Prisma replaces the entire JSON column on update.
     // If the caller sends partial settings (e.g. only printLayouts),
     // we must merge with existing settings to avoid wiping CMS fields.
-    if (data.settings && typeof data.settings === 'object') {
-      const existing = await prisma.tenant.findUnique({
-        where: { id },
-        select: { settings: true },
-      });
-
-      let currentSettings: Record<string, any> = {};
-      if (typeof existing?.settings === 'string') {
-        try {
-          currentSettings = JSON.parse(existing.settings);
-        } catch (e) {
-          currentSettings = {};
+    const result = await prisma.$transaction(async (tx) => {
+      if (data.settings && typeof data.settings === 'object') {
+        const existing = await tx.tenant.findUnique({ where: { id }, select: { settings: true } });
+        let currentSettings: Record<string, any> = {};
+        if (typeof existing?.settings === 'string') {
+          try { currentSettings = JSON.parse(existing.settings); } catch { currentSettings = {}; }
+        } else if (existing?.settings && typeof existing.settings === 'object') {
+          currentSettings = existing.settings as Record<string, any>;
         }
-      } else if (existing?.settings && typeof existing.settings === 'object') {
-        currentSettings = existing.settings as Record<string, any>;
+        data.settings = { ...currentSettings, ...data.settings };
       }
-      
-      data.settings = { ...currentSettings, ...data.settings };
-    }
-
-    const result = await prisma.tenant.update({ where: { id }, data });
+      const updated = await tx.tenant.update({ where: { id }, data });
+      const publicFields = ['name', 'slug', 'customDomain', 'logo', 'address', 'phone', 'email', 'settings'];
+      if (publicFields.some((field) => Object.prototype.hasOwnProperty.call(data, field))) {
+        await runTenantPublicProjectionHook(tx, id);
+      }
+      return updated;
+    });
     logger.info(`Tenant settings updated: ${id} (${Object.keys(data).join(', ')})`);
     return result;
   },
@@ -105,9 +104,13 @@ export const tenantService = {
   async delete(id: string) {
     // Restoran ve finansal/audit gecmisi fiziksel olarak silinmez. Devre disi
     // tenant, bir sonraki imzali yoklamada tenant_disabled entitlement alir.
-    return prisma.tenant.update({
-      where: { id },
-      data: { isActive: false },
+    return prisma.$transaction(async (tx) => {
+      const tenant = await tx.tenant.update({ where: { id }, data: { isActive: false } });
+      await tx.menuPublication.updateMany({
+        where: { tenantId: id, disabledAt: null },
+        data: { disabledAt: new Date() },
+      });
+      return tenant;
     });
   },
 
