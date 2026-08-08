@@ -166,6 +166,7 @@ import customerRoutes from './modules/customers/customer.routes';
 import cmsRoutes from './modules/cms/cms.routes';
 import posRoutes from './modules/pos/pos.routes';
 import staffRoutes from './modules/staff/staff.routes';
+import licenseRoutes from './modules/license/license.routes';
 
 // ─── App Initialization ──────────────────────
 const app = express();
@@ -195,6 +196,9 @@ app.get('/api/health', (_req, res) => {
 
 // ─── API Routes ──────────────────────────────
 app.use('/api/public', publicCmsLimiter, publicRoutes);
+// Lisans uc noktalari kimlik dogrulamasizdir; kendi hiz sinirlarini
+// license.routes.ts icinde tasirlar (bkz. oradaki aciklama).
+app.use('/api/license', licenseRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/tenants', tenantRoutes);
 app.use('/api/menu', menuRoutes);
