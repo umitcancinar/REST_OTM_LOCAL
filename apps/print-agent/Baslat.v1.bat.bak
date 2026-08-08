@@ -1,0 +1,14 @@
+@echo off
+title REST_OTM Print Agent
+echo ==========================================
+echo    REST_OTM Yazici Aracisi Baslatiliyor
+echo ==========================================
+echo.
+echo [1/2] Baglantilar kontrol ediliyor...
+npm run start
+if %errorlevel% neq 0 (
+    echo.
+    echo ❌ HATA: Baglanti saglanamadi! 
+    echo Lutfen Node.js'in yuklu oldugundan emin olun.
+    pause
+)

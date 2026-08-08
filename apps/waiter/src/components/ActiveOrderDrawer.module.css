@@ -1,0 +1,223 @@
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  z-index: var(--z-modal-content);
+  background: var(--bg-surface);
+  box-shadow: -10px 0 30px rgba(0, 0, 0, 0.1);
+  animation: slideLeft 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.header {
+  padding: 24px 28px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-elevated);
+}
+
+.titleGroup {
+  display: flex;
+  flex-direction: column;
+}
+
+.title {
+  font-size: 1.375rem;
+  font-weight: 850;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  letter-spacing: -0.03em;
+}
+
+.subtitle {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  opacity: 0.8;
+}
+
+.closeBtn {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.closeBtn:hover {
+  transform: rotate(90deg);
+  background: var(--bg-muted);
+  color: var(--text-primary);
+}
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.orderItem {
+  background: var(--bg-surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 20px;
+  position: relative;
+  transition: all 0.25s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.orderItem:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.itemHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.itemName {
+  font-weight: 800;
+  color: var(--text-primary);
+  font-size: 1.0625rem;
+  letter-spacing: -0.01em;
+}
+
+.itemPrice {
+  font-weight: 900;
+  color: var(--accent);
+  font-size: 1.125rem;
+}
+
+.itemBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.portionBadge {
+  font-size: 0.7rem;
+  color: var(--accent);
+  background: var(--accent-light);
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+.notesBox {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  margin-top: 12px;
+  border: 1.5px solid var(--border);
+  line-height: 1.5;
+}
+
+.itemFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
+  margin-top: 4px;
+}
+
+.statusIndicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-tertiary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.actionGroup {
+  display: flex;
+  gap: 10px;
+}
+
+.actionBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  border: none;
+  font-weight: 850;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.actionBtn:active {
+  transform: scale(0.94);
+}
+
+.compBtn {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.cancelBtn {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.cancelledSection {
+  margin-top: 32px;
+  padding: 0 4px;
+}
+
+.sectionHeader {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 16px;
+  display: block;
+}
+
+.cancelledItem {
+  display: flex;
+  justify-content: space-between;
+  opacity: 0.5;
+  font-size: 0.8125rem;
+  padding: 14px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-lg);
+  border: 1px dashed var(--border-strong);
+}
+
+@keyframes slideLeft {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}

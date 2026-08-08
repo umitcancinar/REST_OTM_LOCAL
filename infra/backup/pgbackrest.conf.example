@@ -1,0 +1,69 @@
+# ==========================================
+# pgBackRest — REST_OTM yedek yapilandirmasi
+# ==========================================
+# Hedef: /etc/pgbackrest/pgbackrest.conf  (chmod 640, sahip postgres:postgres)
+#
+# Bu dosya SIR icerir (repo2-s3-key-secret, repo2-cipher-pass).
+# Ornek dosya git'te durur; doldurulmus hali ASLA commit edilmez.
+#
+# Iki depo tanimli:
+#   repo1 = VPS uzerinde yerel disk  -> hizli geri donus (dakikalar)
+#   repo2 = B2/R2 nesne deposu       -> silinemez uzak kopya (felaket)
+#
+# Ucuncu katman (Neon sicak yedek) pgBackRest'in isi degil;
+# sync-to-neon.sh onu ayrica yapar.
+
+[global]
+
+# ─── repo1: yerel disk ────────────────────────────────────────────
+# Gunluk "dun aksamki haline don" islerinin cogu buradan karsilanir.
+repo1-path=/var/lib/pgbackrest
+repo1-retention-full=2
+repo1-retention-full-type=count
+
+# ─── repo2: uzak nesne deposu (Backblaze B2 / Cloudflare R2) ──────
+# ONEMLI — object-lock kova tarafinda acilir, pgBackRest'te degil:
+#   B2: bucket olustururken "Object Lock" etkin + varsayilan saklama 30 gun
+#   R2: bucket'a object-lock policy tanimla
+#
+# Kova kilitliyken pgBackRest kilit suresi dolmamis dosyalari SILEMEZ.
+# Bu yuzden repo2 saklamasi kilit suresinden UZUN tutulur; aksi halde
+# 'expire' islemi her calistiginda hata verir.
+#   object-lock: 30 gun  ->  repo2-retention-full: 6 tam yedek (~6 hafta)
+repo2-type=s3
+repo2-path=/rest-otm
+repo2-s3-endpoint=s3.eu-central-003.backblazeb2.com
+repo2-s3-region=eu-central-003
+repo2-s3-bucket=DOLDUR-kova-adi
+repo2-s3-key=DOLDUR-uygulama-anahtari-id
+repo2-s3-key-secret=DOLDUR-uygulama-anahtari
+repo2-s3-uri-style=path
+repo2-retention-full=6
+repo2-retention-full-type=count
+
+# Yedekler depoya SIFRELENMIS gider. Fatura ve musteri verisi tasiyor (KVKK).
+# Bu parolayi kaybedersen yedeklerin tamami okunamaz hale gelir —
+# parola yoneticisinde, sunucudan ayri bir yerde sakla.
+repo2-cipher-type=aes-256-cbc
+repo2-cipher-pass=DOLDUR-openssl-rand-base64-48-ciktisi
+
+# ─── Genel ────────────────────────────────────────────────────────
+# process-max: 2 vCPU'lu kutuda yedek alirken uygulamayi ac birakmamak icin
+# bilerek dusuk. KVM 4'e gecilirse 4 yapilabilir.
+process-max=2
+compress-type=zst
+compress-level=6
+start-fast=y
+log-level-console=info
+log-level-file=detail
+log-path=/var/log/pgbackrest
+
+# Arsivlenmemis WAL birikirse diski doldurup Postgres'i durdurabilir.
+# Bu ayar arsivleme tikanirsa yazma islemlerini bloklamak yerine uyarir.
+archive-async=y
+spool-path=/var/spool/pgbackrest
+
+[rest-otm]
+pg1-path=/var/lib/postgresql/16/main
+pg1-port=5432
+pg1-user=postgres

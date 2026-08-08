@@ -1,0 +1,198 @@
+/* ─── Tables Page ─────────────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  gap: 16px;
+}
+.title {
+  font-size: 1.625rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+}
+.subtitle {
+  font-size: 0.875rem;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
+/* ─── Quick Stats ─────────────────────────────────────────── */
+.quickStats {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.quickStat {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  padding: 14px 18px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  transition: all var(--ease-fast);
+  box-shadow: var(--shadow-xs);
+}
+.quickStat:hover {
+  box-shadow: var(--shadow-sm);
+}
+.quickStatValue {
+  font-size: 1.375rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+.quickStatLabel {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* ─── Zone Filter ─────────────────────────────────────────── */
+.zoneFilter {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.zoneBtn {
+  padding: 8px 18px;
+  border-radius: var(--radius-full);
+  border: 1.5px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: var(--font-primary);
+}
+.zoneBtn:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+.zoneBtnActive {
+  background: var(--gradient-accent);
+  border-color: transparent;
+  color: white;
+  box-shadow: var(--shadow-accent);
+}
+
+/* ─── Table Grid ──────────────────────────────────────────── */
+.tableGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+}
+.tableCard {
+  background: var(--bg-surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  box-shadow: var(--shadow-xs);
+  position: relative;
+}
+.tableCard:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-strong);
+}
+.tableCard:active {
+  transform: scale(0.97);
+}
+.tableTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.tableNumber {
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+.tableBadge {
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.tableInfo {
+  display: flex;
+  gap: 14px;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+.tableWaiter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.waiterAvatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--gradient-accent);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+.tableTotal {
+  margin-top: 8px;
+  font-size: 1.125rem;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+@media (max-width: 768px) {
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .title { font-size: 1.375rem; }
+  .quickStats {
+    flex-wrap: wrap;
+  }
+  .quickStat {
+    flex: 1 1 calc(50% - 6px);
+    min-width: 140px;
+  }
+  .zoneFilter {
+    gap: 6px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+  .zoneFilter::-webkit-scrollbar { display: none; }
+  .zoneBtn {
+    flex-shrink: 0;
+    min-height: 38px;
+    padding: 6px 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .tableGrid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .tableCard { padding: 14px; }
+  .tableNumber { font-size: 1.1rem; }
+  .quickStat { flex: 1 1 100%; }
+}

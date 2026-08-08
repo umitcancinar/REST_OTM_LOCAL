@@ -1,0 +1,306 @@
+/* ─── Orders Page ─────────────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 24px 0;
+  gap: 20px;
+}
+
+.headerTitle {
+  flex-shrink: 0;
+}
+
+.title {
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+}
+
+.subtitle {
+  font-size: 0.875rem;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
+.headerActions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.searchWrapper {
+  position: relative;
+  flex: 1;
+  max-width: 320px;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.searchInput {
+  padding-left: 38px !important;
+  width: 100%;
+}
+
+.actionButtons {
+  display: flex;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+/* ─── Type Filters ────────────────────────────────────────── */
+.typeFilters {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.typeFilters::-webkit-scrollbar { display: none; }
+
+.typeBtn {
+  padding: 10px 22px;
+  border-radius: 12px;
+  font-weight: 800;
+  font-size: 0.9375rem;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1.5px solid var(--border-strong);
+  cursor: pointer;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.typeBtn:active { transform: scale(0.95); }
+
+.typeActive {
+  background: var(--text-primary) !important;
+  color: var(--bg-base) !important;
+  border-color: var(--text-primary) !important;
+}
+
+/* ─── Secondary Filters (Status + Time) ────────────────────── */
+.secondaryFilters {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.statusFilters {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  flex-shrink: 0;
+}
+.statusFilters::-webkit-scrollbar { display: none; }
+
+.filterBtn {
+  padding: 7px 16px;
+  border-radius: 20px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-strong);
+  cursor: pointer;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.filterBtn:active { transform: scale(0.95); }
+
+.filterActive {
+  background: var(--accent) !important;
+  color: white !important;
+  border-color: var(--accent) !important;
+}
+
+.timeFilters {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  background: var(--bg-surface);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+.timeFilters::-webkit-scrollbar { display: none; }
+
+.timeBtn {
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.timeActive {
+  background: var(--text-primary) !important;
+  color: var(--bg-base) !important;
+}
+
+.spinning {
+  animation: rotate 0.8s linear infinite;
+}
+
+@keyframes rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ─── Order Card ──────────────────────────────────────────── */
+.orderCard {
+  background: var(--bg-surface);
+  padding: 20px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.orderCard:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.orderCard:active {
+  transform: scale(0.98);
+}
+
+/* ─── Responsive ──────────────────────────────────────────── */
+@media (max-width: 1024px) {
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    margin: 16px 0;
+    gap: 12px;
+  }
+  .headerActions {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .searchWrapper {
+    max-width: none;
+    flex: 1;
+  }
+}
+
+@media (max-width: 768px) {
+  .title {
+    font-size: 1.375rem;
+  }
+
+  .subtitle {
+    font-size: 0.8125rem;
+  }
+
+  .headerTitle {
+    margin-bottom: 4px;
+  }
+
+  .headerActions {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .searchWrapper {
+    width: 100%;
+  }
+
+  .actionButtons {
+    width: 100%;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .typeFilters {
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .typeBtn {
+    padding: 9px 16px;
+    font-size: 0.875rem;
+    gap: 6px;
+  }
+
+  .secondaryFilters {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .statusFilters {
+    width: 100%;
+    gap: 6px;
+  }
+
+  .filterBtn {
+    padding: 6px 12px;
+    font-size: 0.75rem;
+  }
+
+  .timeFilters {
+    width: 100%;
+  }
+
+  .timeBtn {
+    flex: 1;
+    text-align: center;
+    padding: 8px 4px;
+  }
+}
+
+@media (max-width: 480px) {
+  .title {
+    font-size: 1.25rem;
+  }
+
+  .orderCard {
+    padding: 16px;
+    gap: 12px;
+  }
+
+  /* Payment modal — full columns on tiny screens */
+  .paymentGrid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}

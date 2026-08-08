@@ -1,0 +1,44 @@
+{
+  "name": "rest-otm",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Multi-Tenant Restaurant SaaS Platform — POS & ERP",
+  "scripts": {
+    "dev": "npx -y concurrently -n API,ADMIN,WAITER,MENU,SUPER -c blue,green,magenta,yellow,cyan \"pnpm --filter @rest-otm/api dev\" \"pnpm --filter @rest-otm/admin dev\" \"pnpm --filter @rest-otm/waiter dev\" \"pnpm --filter @rest-otm/menu dev\" \"pnpm --filter @rest-otm/superadmin dev\"",
+    "dev:api": "pnpm --filter @rest-otm/api dev",
+    "dev:admin": "pnpm --filter @rest-otm/admin dev",
+    "dev:waiter": "pnpm --filter @rest-otm/waiter dev",
+    "dev:menu": "pnpm --filter @rest-otm/menu dev",
+    "dev:superadmin": "pnpm --filter @rest-otm/superadmin dev",
+    "build": "pnpm --filter @rest-otm/receipt-core build && pnpm --filter @rest-otm/api build && pnpm --filter @rest-otm/print-agent build && pnpm --filter @rest-otm/admin build && pnpm --filter @rest-otm/waiter build && pnpm --filter @rest-otm/menu build && pnpm --filter @rest-otm/superadmin build",
+    "test": "pnpm --filter @rest-otm/print-agent test",
+    "lint": "pnpm -r run lint",
+    "typecheck": "pnpm -r run typecheck",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "db:generate": "pnpm --filter @rest-otm/api exec prisma generate",
+    "db:migrate": "pnpm --filter @rest-otm/api exec prisma migrate dev",
+    "db:push": "pnpm --filter @rest-otm/api exec prisma db push",
+    "db:seed": "pnpm --filter @rest-otm/api exec prisma db seed",
+    "db:studio": "pnpm --filter @rest-otm/api exec prisma studio",
+    "clean": "rm -rf node_modules apps/*/node_modules apps/*/.next",
+    "build:agent": "pnpm --filter @rest-otm/receipt-core build && pnpm --filter @rest-otm/print-agent build"
+  },
+  "keywords": [
+    "restaurant",
+    "pos",
+    "erp",
+    "saas",
+    "multi-tenant"
+  ],
+  "author": "REST_OTM Team",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "devDependencies": {
+    "pnpm": "^10.33.0"
+  }
+}

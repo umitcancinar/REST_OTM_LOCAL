@@ -1,0 +1,6 @@
+@echo off
+title REST_OTM Print Agent
+echo Baslatiliyor... Lutfen bekleyin.
+cd apps\print-agent
+call npm run start
+pause

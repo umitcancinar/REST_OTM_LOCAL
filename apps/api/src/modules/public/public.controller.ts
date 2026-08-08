@@ -1,0 +1,408 @@
+import { Request, Response, NextFunction } from 'express';
+import { prisma } from '../../config/database';
+import type { AuthenticatedRequest } from '../../middlewares/auth.middleware';
+import { apiResponse, apiError } from '../../utils/apiResponse';
+
+/**
+ * Helper to resolve tenant by slug and return its ID.
+ */
+async function getTenantIdBySlug(slug: string) {
+  const tenant = await prisma.tenant.findUnique({
+    where: { slug, isActive: true },
+    select: { id: true }
+  });
+  return tenant?.id;
+}
+
+export const publicController = {
+  /**
+   * TEHLIKELI ISLEM: Bir isletmenin masa numaralarini standart semaya
+   * (MS1-24 Salon, MT25-40 Teras, VIP 1-20) gore yeniden duzenler; fazla
+   * masalari siler/yeniden adlandirir. Once TUM kiracilar uzerinde,
+   * kimlik dogrulamasi olmadan, GET ile calisiyordu — bu, internete acik
+   * herkesin tek istekle butun restoranlarin masa verisini bozabilmesi
+   * anlamina geliyordu. Artik SUPER_ADMIN yetkisi ve acikca belirtilmis
+   * TEK bir tenantId zorunlu.
+   */
+  async fixTables(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const targetTenantId = req.body?.tenantId || req.query.tenantId;
+      if (!targetTenantId || typeof targetTenantId !== 'string') {
+        apiError(res, 400, 'tenantId zorunludur. Bu islem artik tum kiracilar uzerinde otomatik calismaz.');
+        return;
+      }
+      const tenants = await prisma.tenant.findMany({ where: { id: targetTenantId } });
+      if (tenants.length === 0) {
+        apiError(res, 404, 'Tenant bulunamadi.');
+        return;
+      }
+      let totalUpdated = 0;
+      let totalDeleted = 0;
+      let totalCreated = 0;
+
+      for (const tenant of tenants) {
+        const tables = await prisma.restaurantTable.findMany({ where: { tenantId: tenant.id } });
+        
+        const targetNames = [];
+        for (let i = 1; i <= 24; i++) targetNames.push({ name: `MS${i}`, zone: 'Salon' });
+        for (let i = 25; i <= 40; i++) targetNames.push({ name: `MT${i}`, zone: 'Teras' });
+        for (let i = 1; i <= 20; i++) targetNames.push({ name: `VIP ${i}`, zone: 'VIP' });
+
+        const existingTargets = tables.filter(t => targetNames.some(target => target.name === t.number));
+        const extraTables = tables.filter(t => !existingTargets.includes(t));
+
+        // Which targets are missing?
+        const missingTargets = targetNames.filter(target => !existingTargets.some(t => t.number === target.name));
+
+        // Use extra tables to fulfill missing targets
+        for (let i = 0; i < missingTargets.length; i++) {
+          const target = missingTargets[i];
+          if (extraTables.length > 0) {
+            const tableToRename = extraTables.pop();
+            await prisma.restaurantTable.update({
+              where: { id: tableToRename!.id },
+              data: { number: target.name, zone: target.zone }
+            });
+            totalUpdated++;
+          } else {
+            await prisma.restaurantTable.create({
+              data: {
+                tenantId: tenant.id,
+                number: target.name,
+                zone: target.zone,
+                capacity: 4
+              }
+            });
+            totalCreated++;
+          }
+        }
+
+        // Delete any remaining extra tables
+        for (const table of extraTables) {
+          try {
+            await prisma.restaurantTable.delete({ where: { id: table.id } });
+            totalDeleted++;
+          } catch (e) {
+            // Cannot delete (probably has orders), rename it so it's out of the way
+            await prisma.restaurantTable.update({
+              where: { id: table.id },
+              data: { number: `Silinecek_${table.number}_${Math.floor(Math.random()*1000)}`, zone: 'Pasif' }
+            });
+            totalUpdated++;
+          }
+        }
+      }
+
+      apiResponse({ res, statusCode: 200, message: 'Tables synchronized successfully', data: { totalUpdated, totalDeleted, totalCreated } });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  /**
+   * Resolves a tenant by slug or custom domain and returns public settings.
+   */
+  async getTenantInfo(req: Request, res: Response, next: NextFunction) {
+    try {
+      const identifier = req.query.domain || req.query.slug;
+      if (!identifier) {
+        apiError(res, 400, 'domain or slug is required');
+        return;
+      }
+
+      const tenant = await prisma.tenant.findFirst({
+        where: {
+          OR: [
+            { slug: String(identifier) },
+            { customDomain: String(identifier) }
+          ],
+          isActive: true
+        },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          customDomain: true,
+          logo: true,
+          settings: true,
+          address: true,
+          phone: true,
+          email: true
+        }
+      });
+
+      if (!tenant) {
+        apiError(res, 404, 'Restaurant not found');
+        return;
+      }
+
+      apiResponse({ res, data: tenant });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Gets the public menu for a tenant by SLUG (RESTful pattern).
+   */
+  async getMenuBySlug(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { slug } = req.params;
+
+      const tenant = await prisma.tenant.findUnique({
+        where: { slug: String(slug), isActive: true },
+        select: { id: true, name: true }
+      });
+
+      if (!tenant) {
+        apiError(res, 404, 'Restaurant not found');
+        return;
+      }
+
+      const categories = await prisma.menuCategory.findMany({
+        where: { tenantId: tenant.id, isActive: true },
+        orderBy: { sortOrder: 'asc' },
+        include: {
+          items: {
+            where: { isActive: true },
+            orderBy: { sortOrder: 'asc' },
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              image: true,
+              basePrice: true,
+              taxRate: true,
+              portionOptions: true,
+              extras: true,
+              department: true,
+              preparationTime: true,
+              allergens: true,
+              calories: true,
+              extraInfo: true,
+              badge: true,
+              sortOrder: true,
+              isActive: true,
+            }
+          }
+        }
+      });
+
+      apiResponse({
+        res,
+        data: {
+          restaurantName: tenant.name,
+          categories
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Gets public CMS settings by slug.
+   */
+  async getCmsSettings(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { slug } = req.params;
+      const tenant = await prisma.tenant.findUnique({
+        where: { slug: String(slug), isActive: true },
+        select: { settings: true }
+      });
+
+      if (!tenant) return apiError(res, 404, 'Restaurant not found');
+      
+      // Parse settings if it's a string (though Prisma should handle it if it's Json type)
+      const settings = typeof tenant.settings === 'string' ? JSON.parse(tenant.settings) : tenant.settings;
+      
+      apiResponse({ res, data: settings });
+    } catch (error) { next(error); }
+  },
+
+  /**
+   * Gets public gallery images by slug.
+   */
+  async getGallery(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { slug } = req.params;
+      const tenantId = await getTenantIdBySlug(String(slug));
+      if (!tenantId) return apiError(res, 404, 'Restaurant not found');
+
+      const images = await prisma.galleryImage.findMany({
+        where: { tenantId, isActive: true },
+        orderBy: { sortOrder: 'asc' }
+      });
+      apiResponse({ res, data: images });
+    } catch (error) { next(error); }
+  },
+
+  /**
+   * Gets public stories by slug.
+   */
+  async getStories(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { slug } = req.params;
+      const tenantId = await getTenantIdBySlug(String(slug));
+      if (!tenantId) return apiError(res, 404, 'Restaurant not found');
+
+      const stories = await prisma.story.findMany({
+        where: { 
+          tenantId, 
+          isActive: true,
+          OR: [
+            { expiresAt: null },
+            { expiresAt: { gt: new Date() } }
+          ]
+        },
+        orderBy: { sortOrder: 'asc' }
+      });
+      apiResponse({ res, data: stories });
+    } catch (error) { next(error); }
+  },
+
+  /**
+   * Gets public reviews by slug.
+   */
+  async getReviews(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { slug } = req.params;
+      const tenantId = await getTenantIdBySlug(String(slug));
+      if (!tenantId) return apiError(res, 404, 'Restaurant not found');
+
+      const reviews = await prisma.review.findMany({
+        where: { tenantId, isApproved: true },
+        orderBy: { createdAt: 'desc' }
+      });
+      apiResponse({ res, data: reviews });
+    } catch (error) { next(error); }
+  },
+
+  /**
+   * Gets public active reservations by slug (to show occupied slots on map).
+   */
+  async getReservations(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { slug } = req.params;
+      const tenantId = await getTenantIdBySlug(String(slug));
+      if (!tenantId) return apiError(res, 404, 'Restaurant not found');
+
+      const reservations = await prisma.reservation.findMany({
+        where: { 
+          tenantId,
+          status: { in: ['CONFIRMED', 'PENDING'] }, // Only show active/pending ones
+          reservationTime: { gte: new Date() } // Future or today
+        },
+        select: {
+          id: true,
+          tableId: true,
+          reservationTime: true,
+          guestCount: true,
+          status: true
+        }
+      });
+      apiResponse({ res, data: reservations });
+    } catch (error) { next(error); }
+  },
+
+  /**
+   * Gets public table map by slug.
+   */
+  async getTableMap(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { slug } = req.params;
+      const tenantId = await getTenantIdBySlug(String(slug));
+      if (!tenantId) return apiError(res, 404, 'Restaurant not found');
+
+      const tables = await prisma.restaurantTable.findMany({
+        where: { tenantId },
+        orderBy: { number: 'asc' }
+      });
+      apiResponse({ res, data: tables });
+    } catch (error) { next(error); }
+  },
+
+  /**
+   * Gets public navigation links by slug.
+   */
+  async getNavLinks(req: Request, res: Response, next: NextFunction) {
+    try {
+      // For now, these might be static or stored in settings.
+      // We can return a default set or fetch from tenant settings.
+      const { slug } = req.params;
+      const tenant = await prisma.tenant.findUnique({
+        where: { slug: String(slug), isActive: true },
+        select: { settings: true }
+      });
+      
+      if (!tenant) return apiError(res, 404, 'Restaurant not found');
+      const settings: any = typeof tenant.settings === 'string' ? JSON.parse(tenant.settings) : tenant.settings;
+      
+      apiResponse({ res, data: settings?.navLinks || [] });
+    } catch (error) { next(error); }
+  },
+
+  /**
+   * Musteri menu uygulamasindan garson cagirma. Kimlik dogrulamasi yok
+   * (musteri hesabi olmaz) ama masanin GERCEKTEN o restorana ait oldugu
+   * dogrulanir; boylece rastgele bir tableId ile baska tenant'in odasina
+   * sinyal gonderilemez.
+   */
+  async callWaiter(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { slug } = req.params;
+      const { tableId } = req.body as { tableId?: string };
+      if (!tableId) {
+        apiError(res, 400, 'Masa numarası gereklidir.');
+        return;
+      }
+
+      const tenantId = await getTenantIdBySlug(String(slug));
+      if (!tenantId) return apiError(res, 404, 'Restoran bulunamadı.');
+
+      const table = await prisma.restaurantTable.findFirst({
+        where: { id: tableId, tenantId },
+        select: { id: true },
+      });
+      if (!table) return apiError(res, 404, 'Masa bulunamadı.');
+
+      const { getIO } = await import('../../websocket/socket.server');
+      getIO().to(`tenant:${tenantId}`).emit('waiter:called', {
+        tableId,
+        time: new Date().toISOString(),
+      });
+
+      apiResponse({ res, message: 'Garson çağrıldı' });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Legacy method (kept for compatibility)
+   */
+  async getMenu(req: Request, res: Response, next: NextFunction) {
+    try {
+      const tenantId = req.query.tenantId as string;
+      if (!tenantId) {
+        apiError(res, 400, 'tenantId is required');
+        return;
+      }
+
+      const categories = await prisma.menuCategory.findMany({
+        where: { tenantId, isActive: true },
+        orderBy: { sortOrder: 'asc' },
+        include: {
+          items: {
+            where: { isActive: true },
+            orderBy: { sortOrder: 'asc' }
+          }
+        }
+      });
+
+      apiResponse({ res, data: categories });
+    } catch (error) {
+      next(error);
+    }
+  }
+};

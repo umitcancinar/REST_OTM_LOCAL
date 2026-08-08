@@ -1,0 +1,578 @@
+// ==========================================
+// Prisma Schema — Multi-Tenant Restaurant SaaS
+// ==========================================
+// PostgreSQL with Row-Level Security design.
+// Every table includes tenantId for data isolation.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── TENANT ────────────────────────────────────────
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  slug          String   @unique
+  customDomain  String?  @unique
+  logo          String?
+  address       String?
+  phone     String?
+  email     String?
+  settings  Json     @default("{}")
+  isActive  Boolean  @default(true)
+  /** Tenant basina print-agent kimlik dogrulama sirri. Null ise (henuz
+   *  uretilmemis eski kayitlar) socket.server.ts global PRINT_AGENT_SECRET'a
+   *  duser — geriye donuk uyumluluk icin bilerek boyle. */
+  printAgentSecret      String?
+  /** Uyelik bitis tarihi. Null = sure hic ayarlanmamis (kontrol devre disi,
+   *  mevcut musterileri kilitlememek icin varsayilan). */
+  subscriptionExpiresAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users          User[]
+  menuCategories MenuCategory[]
+  menuItems      MenuItem[]
+  tables         RestaurantTable[]
+  orders         Order[]
+  inventoryItems InventoryItem[]
+  recipes        Recipe[]
+  wasteLogs      WasteLog[]
+  printerConfigs PrinterConfig[]
+  reservations   Reservation[]
+  customers      Customer[]
+  galleryImages  GalleryImage[]
+  stories        Story[]
+  reviews        Review[]
+  newsletterSubs NewsletterSubscriber[]
+  invoices       Invoice[]
+
+  @@map("tenants")
+}
+
+// ─── USER / AUTH ───────────────────────────────────
+
+enum Role {
+  SUPER_ADMIN
+  OWNER
+  ADMIN
+  CHEF
+  CASHIER
+  WAITER
+}
+
+model User {
+  id           String    @id @default(cuid())
+  tenantId     String?
+  email        String
+  passwordHash String
+  name         String
+  role         Role      @default(WAITER)
+  pin          String?   // Quick PIN login for waiters
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  tenant        Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orders        Order[]   @relation("WaiterOrders")
+  wasteLogs     WasteLog[]
+  refreshTokens RefreshToken[]
+
+  @@unique([tenantId, email])
+  @@unique([tenantId, pin])
+  @@index([tenantId])
+  @@map("users")
+}
+
+// ─── REFRESH TOKEN / OTURUM ────────────────────────
+// Onceki surumde refresh token hicbir yerde saklanmiyordu. Sonuclari:
+//   - "Cikis yap" token'i gercekte iptal etmiyordu; calinan bir kopya
+//     suresi dolana kadar (7 gun) gecerli kalmaya devam ediyordu.
+//   - Superadmin, uyeligi biten bir restorani anlik olarak disari atamiyordu.
+//
+// Token'in kendisi degil SHA-256 ozeti saklanir — sifre hash'lemeyle ayni
+// mantik: veritabani sizarsa eldeki ozetlerle oturum acilamaz.
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  /** Token'in SHA-256 ozeti. Token'in kendisi hicbir zaman saklanmaz. */
+  tokenHash String    @unique
+  userId    String
+  /** Tenant bazli toplu iptal icin (uyelik bitisi, hesap pasiflestirme). */
+  tenantId  String?
+  expiresAt DateTime
+  /** Dolu ise token gecersiz. Silmek yerine isaretliyoruz ki yeniden
+   *  kullanim denemesi (calinti token belirtisi) tespit edilebilsin. */
+  revokedAt DateTime?
+  /** Hangi token'in yerine uretildigi — rotasyon zincirini takip eder. */
+  replacedBy String?
+  userAgent String?
+  ip        String?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tenantId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+// ─── CUSTOMERS ─────────────────────────────────────
+
+model Customer {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  phone       String
+  email       String?
+  address     String?
+  notes       String?
+  companyName String?
+  taxOffice   String?
+  taxId       String?   // VKN or TCKN
+  createdAt   DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orders    Order[]
+
+  @@index([tenantId])
+  @@index([tenantId, phone])
+  @@map("customers")
+}
+
+
+// ─── MENU ──────────────────────────────────────────
+
+model MenuCategory {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  description String?
+  image       String?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  items  MenuItem[]
+
+  @@index([tenantId])
+  @@map("menu_categories")
+}
+
+enum Department {
+  KITCHEN
+  BAR
+  GRILL
+  PASTRY
+  COLD
+  CASHIER
+  PAKET
+  POS
+}
+
+model MenuItem {
+  id              String     @id @default(cuid())
+  tenantId        String
+  categoryId      String
+  name            String
+  description     String?
+  image           String?
+  basePrice       Float
+  taxRate         Float      @default(20) // KDV Oranı (%)
+  portionOptions  Json       @default("[]")  // PortionOption[]
+  extras          Json       @default("[]")  // MenuExtra[]
+  department      Department @default(KITCHEN)
+  preparationTime Int?       // minutes
+  calories        Int?       // kcal — kalori bilgisi
+  allergens       Json       @default("[]")  // string[]
+  extraInfo       String?    // Detailed information for modals
+  badge           String?    // e.g., "New", "Popular", "Chef's Recommendation"
+  isActive        Boolean    @default(true)
+  sortOrder       Int        @default(0)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  tenant   Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category MenuCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  recipes  Recipe[]
+
+  @@index([tenantId])
+  @@index([categoryId])
+  @@map("menu_items")
+}
+
+// ─── TABLES ────────────────────────────────────────
+
+enum TableStatus {
+  AVAILABLE
+  OCCUPIED
+  RESERVED
+  CLEANING
+}
+
+model RestaurantTable {
+  id        String      @id @default(cuid())
+  tenantId  String
+  number    String
+  zone      String      @default("Salon")
+  capacity  Int         @default(4)
+  status    TableStatus @default(AVAILABLE)
+  positionX Float?
+  positionY Float?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orders Order[]
+  reservations Reservation[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId])
+  @@map("restaurant_tables")
+}
+
+// ─── RESERVATIONS ──────────────────────────────────
+
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+model Reservation {
+  id              String            @id @default(cuid())
+  tenantId        String
+  tableId         String
+  customerName    String
+  customerPhone   String?
+  guestCount      Int               @default(2)
+  reservationTime DateTime
+  status          ReservationStatus @default(CONFIRMED)
+  notes           String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  tenant Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  table  RestaurantTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tableId])
+  @@index([tenantId, reservationTime])
+  @@map("reservations")
+}
+
+
+// ─── ORDERS ────────────────────────────────────────
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  READY
+  SERVED
+  COMPLETED
+  CANCELLED
+}
+
+model Order {
+  id              String      @id @default(cuid())
+  tenantId        String
+  tableId         String?
+  customerId      String?
+  waiterId        String?
+  orderNumber     String
+  type            String      @default("DINE_IN") // DINE_IN | TAKEAWAY
+  isDeleted       Boolean     @default(false)
+  status          OrderStatus @default(PENDING)
+  totalAmount     Float       @default(0)
+  taxAmount       Float       @default(0)
+  serviceCharge   Float       @default(0)
+  discountAmount  Float       @default(0)
+  grandTotal      Float       @default(0)
+  paymentMethod   String?
+  paidAmount      Float       @default(0)
+  payments        Json?       @default("[]")
+  notes           String?
+  invoice         Invoice?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  completedAt     DateTime?
+
+  tenant    Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  table     RestaurantTable?   @relation(fields: [tableId], references: [id])
+  customer  Customer?          @relation(fields: [customerId], references: [id])
+  waiter    User?              @relation("WaiterOrders", fields: [waiterId], references: [id])
+  subChecks SubCheck[]
+
+  @@index([tenantId])
+  @@index([tableId])
+  @@index([customerId])
+  @@index([waiterId])
+  @@index([tenantId, createdAt])
+  @@map("orders")
+}
+
+model SubCheck {
+  id            String  @id @default(cuid())
+  orderId       String
+  label         String  @default("Genel")
+  subtotal      Float   @default(0)
+  isPaid        Boolean @default(false)
+  paymentMethod String?
+
+  order Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  items OrderItem[]
+
+  @@map("sub_checks")
+}
+
+enum OrderItemStatus {
+  PENDING
+  PREPARING
+  READY
+  SERVED
+  CANCELLED
+}
+
+model OrderItem {
+  id                String          @id @default(cuid())
+  subCheckId        String
+  menuItemId        String
+  menuItemName      String
+  quantity          Float           @default(1.0)
+  portionOption     String          @default("Normal")
+  portionMultiplier Float           @default(1.0)
+  unitPrice         Float
+  taxRate           Float           @default(20) // Sabitlenmiş KDV
+  extras            Json            @default("[]")
+  totalPrice        Float
+  isTreat           Boolean         @default(false)
+  notes             String?
+  status            OrderItemStatus @default(PENDING)
+  department        Department      @default(KITCHEN)
+  createdAt         DateTime        @default(now())
+
+  subCheck SubCheck @relation(fields: [subCheckId], references: [id], onDelete: Cascade)
+
+  @@index([subCheckId])
+  @@map("order_items")
+}
+
+// ─── INVENTORY & RECIPES ───────────────────────────
+
+enum StockUnit {
+  GRAM
+  KILOGRAM
+  LITER
+  MILLILITER
+  PIECE
+  PORTION
+}
+
+model InventoryItem {
+  id            String    @id @default(cuid())
+  tenantId      String
+  name          String
+  unit          StockUnit @default(PIECE)
+  currentStock  Float     @default(0)
+  minStockAlert Float     @default(0)
+  costPerUnit   Float     @default(0)
+  supplier      String?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant           Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  recipeIngredients RecipeIngredient[]
+  wasteLogs        WasteLog[]
+
+  @@index([tenantId])
+  @@map("inventory_items")
+}
+
+model Recipe {
+  id         String   @id @default(cuid())
+  tenantId   String
+  menuItemId String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  menuItem    MenuItem           @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  ingredients RecipeIngredient[]
+
+  @@index([tenantId])
+  @@index([menuItemId])
+  @@map("recipes")
+}
+
+model RecipeIngredient {
+  id              String    @id @default(cuid())
+  recipeId        String
+  inventoryItemId String
+  quantity        Float
+  unit            StockUnit
+
+  recipe        Recipe        @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
+
+  @@map("recipe_ingredients")
+}
+
+model WasteLog {
+  id              String   @id @default(cuid())
+  tenantId        String
+  inventoryItemId String
+  quantity        Float
+  reason          String
+  loggedById      String
+  createdAt       DateTime @default(now())
+
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  loggedBy      User          @relation(fields: [loggedById], references: [id])
+
+  @@index([tenantId])
+  @@map("waste_logs")
+}
+
+// ─── PRINTER CONFIG ────────────────────────────────
+
+model PrinterConfig {
+  id          String     @id @default(cuid())
+  tenantId    String
+  name        String     // e.g. "Mutfak Yazıcısı", "Bar Yazıcısı"
+  type        String     @default("ESCPOS") // ESCPOS | KDS
+  ipAddress   String?
+  port        Int?
+  usbVendorId String?
+  usbProductId String?
+  departments Department[] // Which departments route to this printer
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("printer_configs")
+}
+
+// ─── CMS & MARKETING (SITE SHOWCASE) ───────────────
+
+model GalleryImage {
+  id          String   @id @default(cuid())
+  tenantId    String
+  url         String
+  caption     String?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([id, tenantId])
+  @@index([tenantId])
+  @@map("gallery_images")
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
+model Story {
+  id          String    @id @default(cuid())
+  tenantId    String
+  title       String?
+  mediaUrl    String
+  mediaType   MediaType @default(IMAGE)
+  duration    Int       @default(5000)
+  sortOrder   Int       @default(0)
+  isActive    Boolean   @default(true)
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([id, tenantId])
+  @@index([tenantId])
+  @@map("stories")
+}
+
+model Review {
+  id           String   @id @default(cuid())
+  tenantId     String
+  customerName String
+  rating       Int      @default(5)
+  text         String
+  source       String   @default("DIRECT")
+  isApproved   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([id, tenantId])
+  @@index([tenantId])
+  @@map("reviews")
+}
+
+model NewsletterSubscriber {
+  id        String   @id @default(cuid())
+  tenantId  String
+  email     String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@map("newsletter_subscribers")
+}
+
+// ─── E-INVOICE (Uyumsoft) ──────────────────────────
+
+enum InvoiceStatus {
+  DRAFT
+  QUEUED
+  SENT
+  FAILED
+  CANCELLED
+}
+
+model Invoice {
+  id           String        @id @default(cuid())
+  tenantId     String
+  orderId      String        @unique
+  uuid         String        // ETTN
+  invoiceNo    String?       // Fatura No (e.g. UYM2026000000001)
+  status       InvoiceStatus @default(DRAFT)
+  pdfUrl       String?       // PDF or HTML link from Integrator
+  totalAmount  Float
+  taxAmount    Float
+  errorMessage String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("invoices")
+}

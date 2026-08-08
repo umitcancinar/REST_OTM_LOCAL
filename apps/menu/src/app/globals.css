@@ -1,0 +1,172 @@
+/* ============================================================
+   REST_OTM Menu App — Design System
+   Modern, Consumer-facing UI inspired by Trendyol/Getir
+   Dual Theme Support (Light/Dark)
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
+
+/* ─── LIGHT MODE (Default) ────────────────────────────────── */
+:root {
+  --bg-base:     #F9FAFB;
+  --bg-surface:  #FFFFFF;
+  --bg-elevated: #F3F4F6;
+  --bg-glass:    rgba(255, 255, 255, 0.85);
+  
+  --text-primary:   #111827;
+  --text-secondary: #4B5563;
+  --text-muted:     #9CA3AF;
+  
+  --accent:       #F97316; /* Trendyol/Getir style warm accent */
+  --accent-hover: #EA580C;
+  --accent-light: #FFF7ED;
+  --accent-muted: rgba(249, 115, 22, 0.12);
+  
+  --success: #10B981;
+  --warning: #F59E0B;
+  --danger:  #EF4444;
+  
+  --border:        #E5E7EB;
+  --border-strong: #D1D5DB;
+  
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+  --shadow-md: 0 8px 16px rgba(0,0,0,0.08);
+  --shadow-lg: 0 16px 24px rgba(0,0,0,0.1);
+  --shadow-glow: 0 8px 24px rgba(249, 115, 22, 0.25);
+  
+  --gradient-accent: linear-gradient(135deg, #F97316, #EF4444);
+  
+  --font-primary: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+  
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
+  
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ─── DARK MODE ───────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg-base:     #0F1115;
+  --bg-surface:  #181A20;
+  --bg-elevated: #22252C;
+  --bg-glass:    rgba(24, 26, 32, 0.85);
+
+  --text-primary:   #F3F4F6;
+  --text-secondary: #9CA3AF;
+  --text-muted:     #4B5563;
+
+  --accent:       #FF8A3D;
+  --accent-hover: #F97316;
+  --accent-light: rgba(249, 115, 22, 0.15);
+  --accent-muted: rgba(255, 138, 61, 0.1);
+
+  --border:        rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.15);
+
+  --shadow-sm: 0 1px 4px rgba(0,0,0,0.3);
+  --shadow-md: 0 8px 16px rgba(0,0,0,0.4);
+  --shadow-lg: 0 16px 24px rgba(0,0,0,0.5);
+  --shadow-glow: 0 8px 24px rgba(255, 138, 61, 0.2);
+}
+
+/* ─── RESET ───────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family: var(--font-primary);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  min-height: 100dvh;
+  transition: background 0.35s ease, color 0.35s ease;
+  overflow-x: hidden;
+}
+
+/* ─── BUTTONS ─────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-radius: var(--radius-full); /* Consumer apps love pill buttons */
+  font-family: var(--font-primary);
+  font-size: 1rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border: none;
+  touch-action: manipulation;
+}
+
+.btn:active {
+  transform: scale(0.96);
+}
+
+.btn-primary {
+  background: var(--gradient-accent);
+  color: white;
+  box-shadow: var(--shadow-glow);
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1.5px solid var(--border-strong);
+}
+
+.btn-glass {
+  background: var(--bg-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+}
+
+/* ─── FLOATING ACTION BUTTON (FAB) ───────────────────────── */
+.fab-container {
+  position: fixed;
+  bottom: calc(24px + var(--safe-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  width: 90%;
+  max-width: 400px;
+  animation: slideUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+/* ─── ANIMATIONS ──────────────────────────────────────────── */
+@keyframes slideUp {
+  from { opacity: 0; transform: translate(-50%, 30px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+.stagger-1 { animation-delay: 0.1s; opacity: 0; }
+.stagger-2 { animation-delay: 0.2s; opacity: 0; }
+.stagger-3 { animation-delay: 0.3s; opacity: 0; }
+
+/* ─── SCROLLBAR ───────────────────────────────────────────── */
+::-webkit-scrollbar { width: 0; height: 0; background: transparent; }

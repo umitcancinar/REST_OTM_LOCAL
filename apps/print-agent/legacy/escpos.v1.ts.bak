@@ -1,0 +1,813 @@
+// ==========================================
+// ESC/POS Command Builder
+// ==========================================
+// Generates raw ESC/POS byte commands for
+// thermal receipt printers.
+
+import { createRasterImageBuffer } from './image';
+
+const ESC = '\x1B';
+const GS  = '\x1D';
+// Most generic ESC/POS printers (XPrinter, Rongta, etc.) use ESC B n t for beeping
+// n = number of beeps, t = duration of beep (*50ms)
+const BEEP_CMD = '\x1B\x42\x04\x02'; // 4 beeps, 100ms each
+const BEL = '\x07'; // Fallback BEL command // Yazıcı sesli uyard (dit!)
+const PAPER_PIXELS: Record<58 | 80, number> = { 58: 384, 80: 576 };
+const PAPER_COLUMNS: Record<58 | 80, number> = { 58: 32, 80: 48 };
+// TP850 in NATIVE mode ignores the feed distance embedded in GS V. Feed an
+// explicit 180 dots (180 / 203 inch ≈ 22.5 mm), then issue the cut separately.
+const TP850_CUT_FEED_DOTS = 180;
+// Fırın ve ızgara yazıcılarının kesicisi baskı kafasından daha uzakta.
+// İstasyon fişini adisyona göre 10 mm daha ilerletmeden kesmek alt satırları
+// yazıcının içinde bırakıyor.
+const STATION_CUT_EXTRA_DOTS = Math.round((10 / 25.4) * 203);
+// Izgara cihazının mekanik başlangıç payı fırından 5 mm daha fazla.
+// Kullanıcının tasarımda verdiği üst boşluktan yalnızca bu cihaz payını düş.
+const GRILL_TOP_TRIM_MM = 5;
+
+export interface PrintLayout {
+  logoUrl?: string;
+  logoWidth?: number;
+  logoPosition?: 'left' | 'center' | 'right';
+  paperWidth?: 58 | 80;
+  headerText?: string;
+  subHeaderText?: string;
+  receiptTitle?: string;
+  footerText?: string;
+  hideLogo?: boolean;
+  hideHeader?: boolean;
+  hidePrices?: boolean;
+  boldItems?: boolean;
+  doubleSizeItems?: boolean;
+  inlineDateMasa?: boolean;
+  doubleSizeTable?: boolean;
+  topMarginMm?: number;
+}
+
+function getPaperWidth(value: unknown): 58 | 80 {
+  return value === 58 ? 58 : 80;
+}
+
+export function logoWidthToPixels(value: unknown, paperWidth: 58 | 80): number {
+  const widthMm = Math.min(paperWidth, Math.max(1, Number(value) || Math.min(50, paperWidth)));
+  const paperPixels = PAPER_PIXELS[paperWidth];
+  // 203 DPI is almost exactly 8 dots/mm. Scaling by the nominal paper width
+  // made a requested 50 mm logo print as ~45 mm on an 80 mm TP850 because its
+  // printable head is 72 mm wide. Convert the requested physical size directly.
+  const physicalPixels = Math.round(((widthMm / 25.4) * 203) / 8) * 8;
+  return Math.min(Math.max(8, physicalPixels), paperPixels);
+}
+
+function topMarginMmToDots(value: unknown, trimMm = 0): number {
+  const millimeters = Math.min(30, Math.max(0, (Number(value) || 0) - trimMm));
+  return Math.round((millimeters / 25.4) * 203);
+}
+
+/**
+ * TP850 NATIVE emulation is inconsistent between firmware revisions: some
+ * devices honor GS ! while others honor ESC !. Emit both so the physical
+ * table number follows the same 2x setting shown in the preview.
+ */
+function textScale(doubleSize: boolean): string {
+  return `${ESC}!${doubleSize ? '\x30' : '\x00'}${GS}!${doubleSize ? '\x11' : '\x00'}`;
+}
+
+function fitText(value: unknown, width: number): string {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  if (text.length <= width) return text;
+  return width <= 3 ? text.slice(0, width) : `${text.slice(0, width - 3)}...`;
+}
+
+function wrapText(value: unknown, width: number): string[] {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  if (!text) return [];
+  const lines: string[] = [];
+  let remaining = text;
+  while (remaining.length > width) {
+    const candidate = remaining.slice(0, width + 1);
+    const breakAt = candidate.lastIndexOf(' ');
+    const take = breakAt > Math.floor(width / 2) ? breakAt : width;
+    lines.push(remaining.slice(0, take).trim());
+    remaining = remaining.slice(take).trim();
+  }
+  if (remaining) lines.push(remaining);
+  return lines;
+}
+
+function twoColumnLine(left: unknown, right: unknown, columns: number): string {
+  const leftText = fitText(left, columns);
+  const rightText = fitText(right, columns);
+  const gap = Math.max(1, columns - leftText.length - rightText.length);
+  const availableLeft = Math.max(0, columns - rightText.length - gap);
+  return `${fitText(leftText, availableLeft)}${' '.repeat(gap)}${rightText}`;
+}
+
+/**
+ * Render the date/table block exactly as it appears in ReceiptPreview.
+ * Double-size table text consumes two physical columns per character, so the
+ * spacing calculation accounts for that before keeping both values inline.
+ */
+function receiptMetadata(
+  timestamp: Date,
+  tableNumber: number,
+  columns: number,
+  inline: boolean,
+  doubleSizeTable: boolean,
+): string {
+  const date = timestamp.toLocaleDateString('tr-TR');
+  const time = timestamp.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+  const isTakeaway = !tableNumber;
+  const tableLabel = isTakeaway ? 'PAKET' : `MASA: ${tableNumber}`;
+
+  if (inline) {
+    const left = `${date} ${time}`;
+    // PAKET: 4 kat büyük (quadSize), normal masa: doubleSizeTable kontrolü
+    const emphasized = doubleSizeTable && !isTakeaway;
+    const rightWidth = tableLabel.length * (isTakeaway ? 4 : emphasized ? 2 : 1);
+    const gap = columns - left.length - rightWidth;
+    let output = '';
+
+    if (gap > 0) {
+      output += `${left}${' '.repeat(gap)}`;
+    } else {
+      output += `${left}\n${ESC}a\x02`;
+    }
+
+    if (isTakeaway) {
+      // 4 kat büyük PAKET etiketi
+      output += `${ESC}E\x01${GS}!\x33`;
+      output += `${tableLabel}\n`;
+      output += `${GS}!\x00${ESC}E\x00`;
+    } else if (emphasized) {
+      output += `${ESC}E\x01${textScale(true)}`;
+      output += `${tableLabel}\n`;
+      output += `${textScale(false)}${ESC}E\x00`;
+    } else {
+      output += `${tableLabel}\n`;
+    }
+    output += `${ESC}a\x00`;
+    return output;
+  }
+
+  let output = `Tarih : ${date}\nSaat  : ${time}\n`;
+  if (isTakeaway) {
+    // PAKET kelimesini 4 kat büyük yaz
+    output += `${ESC}a\x01`; // ortala
+    output += `${ESC}E\x01${GS}!\x33`; // bold + quad size (4x)
+    output += `PAKET\n`;
+    output += `${GS}!\x00${ESC}E\x00`;
+    output += `${ESC}a\x00`; // sola hizala
+    return output;
+  }
+
+  if (doubleSizeTable) output += `${ESC}E\x01${textScale(true)}`;
+  output += `Masa  : ${tableNumber}\n`;
+  if (doubleSizeTable) output += `${textScale(false)}${ESC}E\x00`;
+  return output;
+}
+
+/**
+ * Türkçe karakterleri CP857 (PC Turkish) code page byte değerlerine çevirir.
+ * ESC/POS yazıcıları UTF-8 anlamaz; bu map yoksa İ,Ş,Ğ,Ü,Ö,Ç ‘bozuk’ çıkar.
+ *
+ * CP857 Referans: https://en.wikipedia.org/wiki/Code_page_857
+ */
+export function turkishToCP857(text: string): Buffer {
+  const map: Record<string, number> = {
+    // Uppercase Turkish
+    'Ç': 0x80, 'ü': 0x81, 'é': 0x82, 'â': 0x83,
+    'ä': 0x84, 'à': 0x85, 'å': 0x86, 'ç': 0x87,
+    'ê': 0x88, 'ë': 0x89, 'è': 0x8A, 'ï': 0x8B,
+    'î': 0x8C, 'ı': 0x8D, 'Ä': 0x8E, 'Å': 0x8F,
+    'É': 0x90, 'æ': 0x91, 'Æ': 0x92, 'ô': 0x93,
+    'ö': 0x94, 'ò': 0x95, 'û': 0x96, 'ù': 0x97,
+    'İ': 0x98, 'Ö': 0x99, 'Ü': 0x9A, 'ø': 0x9B,
+    '£': 0x9C, 'Ø': 0x9D, 'Ş': 0x9E, 'ş': 0x9F,
+    'á': 0xA0, 'í': 0xA1, 'ó': 0xA2, 'ú': 0xA3,
+    'ñ': 0xA4, 'Ñ': 0xA5, 'Ğ': 0xA6, 'ğ': 0xA7,
+    '¿': 0xA8, '®': 0xA9, '¬': 0xAA, '½': 0xAB,
+    '¼': 0xAC, '¡': 0xAD, '«': 0xAE, '»': 0xAF,
+  };
+
+  const bytes: number[] = [];
+  for (const ch of text) {
+    if (map[ch] !== undefined) {
+      bytes.push(map[ch]);
+    } else if (ch.charCodeAt(0) <= 0xFF) {
+      // ESC/POS command parameters are raw single bytes and may be > 127.
+      // Preserve them verbatim (for example, the TP850 cut-feed distance).
+      bytes.push(ch.charCodeAt(0));
+    } else {
+      bytes.push(0x3F); // '?' fallback unknown char
+    }
+  }
+  return Buffer.from(bytes);
+}
+
+export const escpos = {
+  /** Initialize printer + set Turkish code page (CP857) */
+  init(): string {
+    // ESC @ = reset
+    // Jolimark TP850 exposes a second CP857 table at index 102. This is the
+    // table honored by the device's NATIVE emulation; index 61 is ignored.
+    return `${ESC}@${ESC}t\x66`;
+  },
+
+  /** Set text alignment */
+  align(position: 'left' | 'center' | 'right'): string {
+    const alignMap = { left: '\x00', center: '\x01', right: '\x02' };
+    return `${ESC}a${alignMap[position]}`;
+  },
+
+  /** Bold text on/off */
+  bold(on: boolean): string {
+    return `${ESC}E${on ? '\x01' : '\x00'}`;
+  },
+
+  /** Double height/width */
+  doubleSize(on: boolean): string {
+    return `${GS}!${on ? '\x11' : '\x00'}`;
+  },
+
+  /** Quad height/width */
+  quadSize(on: boolean): string {
+    return `${GS}!${on ? '\x33' : '\x00'}`;
+  },
+
+  /** Triple height/width (Giant) */
+  giantSize(on: boolean): string {
+    // Both ESC ! and GS ! used for better compatibility with cheap printers
+    return `${ESC}!${on ? '\x30' : '\x00'}${GS}!${on ? '\x22' : '\x00'}`;
+  },
+
+  /** Underline */
+  underline(on: boolean): string {
+    return `${ESC}-${on ? '\x01' : '\x00'}`;
+  },
+
+  /** Line feed */
+  feed(lines: number = 1): string {
+    return `${ESC}d${String.fromCharCode(lines)}`;
+  },
+
+  /** Advance paper by printer dots (203 DPI on common thermal printers). */
+  feedDots(dots: number): string {
+    let remaining = Math.max(0, Math.round(dots));
+    let command = '';
+    while (remaining > 0) {
+      const chunk = Math.min(255, remaining);
+      command += `${ESC}J${String.fromCharCode(chunk)}`;
+      remaining -= chunk;
+    }
+    return command;
+  },
+
+  /** Cut paper */
+  cut(): string {
+    return `${GS}V\x00`;
+  },
+
+  /** Partial cut */
+  partialCut(): string {
+    return `${GS}V\x01`;
+  },
+
+  /** Horizontal line separator */
+  separator(char: string = '-', width: number = 32): string {
+    return char.repeat(width) + '\n';
+  },
+
+  /** Format a kitchen/grill ticket — type determines the header */
+  async kitchenTicket(data: {
+    orderNumber: string;
+    tableNumber: number;
+    waiterName?: string;
+    department: 'KITCHEN' | 'GRILL';
+    items: Array<{
+      menuItemName: string;
+      quantity: number;
+      price?: number;
+      portionOption: string;
+      notes?: string | null;
+    }>;
+    timestamp: Date;
+    layout?: PrintLayout;
+    isCancel?: boolean;
+    isTreat?: boolean;
+  }): Promise<Buffer> {
+    let output = '';
+
+    const isGrill = data.department === 'GRILL';
+    const defaultLabel  = isGrill ? 'IZGARA FİŞİ' : 'FIRIN FİŞİ';
+    const paperWidth = getPaperWidth(data.layout?.paperWidth);
+    const columns = PAPER_COLUMNS[paperWidth];
+
+    // Ayarlardaki özel başlıkları kullan, yoksa varsayılanlar
+    const headerText = data.layout?.hideHeader ? '' : (data.layout?.headerText || '');
+    const subHeaderText = data.layout?.subHeaderText || '';
+    let receiptTitle = data.layout?.receiptTitle || defaultLabel;
+    
+    // İptal ve İkram durumunda başlığı ez
+    let finalBeepCmd = BEEP_CMD;
+    if (data.isCancel) {
+      receiptTitle = '!!! İPTAL FİŞİ !!!';
+      finalBeepCmd = '\x1B\x42\x08\x05'; // 8 uzun uyarı sesi (8 * 250ms = 2s)
+    } else if (data.isTreat) {
+      receiptTitle = '*** İKRAM FİŞİ ***';
+    }
+
+    const footerText = data.layout?.footerText || 'TEŞEKKÜR EDERİZ';
+
+    let imageBuffer: Buffer = Buffer.alloc(0);
+    if (data.layout?.logoUrl && !data.layout?.hideLogo) {
+      imageBuffer = await createRasterImageBuffer(
+        data.layout.logoUrl,
+        logoWidthToPixels(data.layout.logoWidth, paperWidth),
+        data.layout.logoPosition || 'center',
+      );
+    }
+
+    output += escpos.align('center');
+    
+    if (headerText) {
+      output += escpos.bold(true);
+      output += escpos.doubleSize(true);
+      output += `${wrapText(headerText, Math.floor(columns / 2)).join('\n')}\n`;
+      output += escpos.doubleSize(false);
+      output += escpos.bold(false);
+    }
+    
+    if (subHeaderText) {
+      output += escpos.bold(true);
+      output += `${wrapText(subHeaderText, columns).join('\n')}\n`;
+      output += escpos.bold(false);
+    }
+
+    output += escpos.separator('-', columns);
+
+    output += escpos.bold(true);
+    if (data.isCancel) {
+      // İPTAL FİŞİ: 4 kat büyük (quadSize = GS ! 0x33)
+      output += escpos.quadSize(true);
+      output += `${wrapText(receiptTitle.toUpperCase(), Math.floor(columns / 4)).join('\n')}\n`;
+      output += escpos.quadSize(false);
+    } else {
+      output += escpos.doubleSize(true);
+      output += `${wrapText(receiptTitle.toUpperCase(), Math.floor(columns / 2)).join('\n')}\n`;
+      output += escpos.doubleSize(false);
+    }
+    output += escpos.bold(false);
+    output += escpos.separator('-', columns);
+
+    output += escpos.align('left');
+    
+    output += receiptMetadata(
+      data.timestamp,
+      data.tableNumber,
+      columns,
+      Boolean(data.layout?.inlineDateMasa),
+      Boolean(data.layout?.doubleSizeTable),
+    );
+    output += escpos.bold(true);
+    output += `Fiş No: #${data.orderNumber}\n`;
+    output += escpos.bold(false);
+    if (data.waiterName) {
+      output += `Garson: ${data.waiterName}\n`;
+    }
+    output += escpos.separator('-', columns);
+
+    const hidePrices = data.layout?.hidePrices || false;
+    const isDoubleSize = data.layout?.doubleSizeItems || false;
+    
+    // Double-size text halves the usable character count, therefore it is
+    // rendered as stacked rows instead of forcing overflowing columns.
+    if (!isDoubleSize) {
+      const quantityWidth = 6;
+      if (hidePrices) {
+        const nameWidth = columns - quantityWidth;
+        output += `${'ÜRÜN'.padEnd(nameWidth)}${'ADET'.padStart(quantityWidth)}\n`;
+      } else {
+        const priceWidth = 12;
+        const nameWidth = columns - quantityWidth - priceWidth;
+        output += `${'ÜRÜN'.padEnd(nameWidth)}${'ADET'.padStart(quantityWidth)}${'TUTAR'.padStart(priceWidth)}\n`;
+      }
+      output += escpos.separator('-', columns);
+    }
+
+    for (const item of data.items) {
+      const quantityStr = item.quantity.toString();
+      const hasPrice = item.price !== undefined && item.price !== null;
+      const priceStr = (!hidePrices && hasPrice) ? `${(item.price! * item.quantity).toFixed(2)} TL` : '';
+      
+      let itemName = item.menuItemName.toUpperCase();
+      if (item.notes && item.notes.includes('[İKRAM]')) itemName += ' [IKRAM]';
+      if (item.portionOption && item.portionOption !== 'Normal') itemName += ` (${item.portionOption})`;
+
+      if (isDoubleSize) {
+        output += escpos.doubleSize(true);
+        if (data.layout?.boldItems) output += escpos.bold(true);
+
+        const doubleColumns = Math.floor(columns / 2);
+        for (const line of wrapText(`${quantityStr}x ${itemName}`, doubleColumns)) {
+          output += `${line}\n`;
+        }
+        
+        if (!hidePrices && priceStr) {
+          output += escpos.align('right');
+          output += `${fitText(priceStr, doubleColumns)}\n`;
+          output += escpos.align('left');
+        }
+        
+        if (data.layout?.boldItems) output += escpos.bold(false);
+        output += escpos.doubleSize(false);
+      } else {
+        const quantityWidth = 6;
+        const priceWidth = hidePrices ? 0 : 12;
+        const nameWidth = columns - quantityWidth - priceWidth;
+        const line = `${fitText(itemName, nameWidth).padEnd(nameWidth)}${quantityStr.padStart(quantityWidth)}${hidePrices ? '' : fitText(priceStr, priceWidth).padStart(priceWidth)}`;
+        
+        if (data.layout?.boldItems) output += escpos.bold(true);
+        output += `${line}\n`;
+        if (data.layout?.boldItems) output += escpos.bold(false);
+      }
+
+      if (item.notes && !item.notes.includes('[İKRAM]')) {
+        output += escpos.separator('.', columns);
+        output += escpos.bold(true);
+        for (const line of wrapText(`!! NOT: ${item.notes}`, columns - 3)) {
+          output += `   ${line}\n`;
+        }
+        output += escpos.bold(false);
+      } else {
+        output += escpos.separator('.', columns);
+      }
+    }
+
+    if (!data.layout?.hidePrices) {
+      output += escpos.align('right');
+      const totalAmount = data.isCancel || data.isTreat ? 0 : data.items.reduce((acc, i) => acc + ((i.price || 0) * i.quantity), 0);
+      output += escpos.bold(true);
+      output += `TOPLAM: ${totalAmount.toLocaleString('tr-TR')} TL\n`;
+      output += escpos.bold(false);
+      output += '\n';
+    }
+
+    if (footerText) {
+      output += escpos.align('center');
+      output += `${wrapText(footerText, columns).join('\n')}\n`;
+    }
+
+    output += escpos.feed(4);
+    
+    // Kesim payı ekle (TP850 ve NATIVE / STATION_CUT_EXTRA_DOTS)
+    output += escpos.feedDots(TP850_CUT_FEED_DOTS + STATION_CUT_EXTRA_DOTS);
+    output += escpos.cut();
+
+    const prefix = escpos.init()
+      + finalBeepCmd
+      + BEL
+      + escpos.feedDots(topMarginMmToDots(data.layout?.topMarginMm, isGrill ? GRILL_TOP_TRIM_MM : 0));
+    return Buffer.concat([turkishToCP857(prefix), imageBuffer, turkishToCP857(output)]);
+  },
+
+  /** Format a receipt */
+  receipt(data: {
+    restaurantName: string;
+    orderNumber: string;
+    tableNumber: number;
+    waiterName: string;
+    items: Array<{
+      name: string;
+      quantity: number;
+      price: number;
+    }>;
+    subtotal: number;
+    tax: number;
+    total: number;
+    timestamp: Date;
+  }): string {
+    let output = '';
+
+    output += escpos.init();
+    output += BEEP_CMD + BEL; // Yazıcı sesi — adisyon fişinde çalar
+    output += escpos.align('center');
+    output += escpos.bold(true);
+    output += escpos.doubleSize(true);
+    output += `${data.restaurantName}\n`;
+    output += escpos.doubleSize(false);
+    output += escpos.bold(false);
+    output += escpos.separator('=');
+
+    output += escpos.align('left');
+    output += `Fiş No: ${data.orderNumber}\n`;
+    output += `Masa: ${data.tableNumber}  Garson: ${data.waiterName}\n`;
+    output += `Tarih: ${data.timestamp.toLocaleString('tr-TR')}\n`;
+    output += escpos.separator();
+
+    for (const item of data.items) {
+      const priceStr = `${item.price.toFixed(2)} TL`;
+      const itemLine = `${item.quantity}x ${item.name}`;
+      const padding = Math.max(0, 32 - itemLine.length - priceStr.length);
+      output += `${itemLine}${' '.repeat(padding)}${priceStr}\n`;
+    }
+
+    output += escpos.separator();
+    output += escpos.align('right');
+    output += `Ara Toplam: ${data.subtotal.toFixed(2)} TL\n`;
+    output += `KDV:        ${data.tax.toFixed(2)} TL\n`;
+    output += escpos.bold(true);
+    output += escpos.doubleSize(true);
+    output += `TOPLAM: ${data.total.toFixed(2)} TL\n`;
+    output += escpos.doubleSize(false);
+    output += escpos.bold(false);
+
+    output += escpos.align('center');
+    output += escpos.feed(1);
+    output += 'Teşekkürler, iyi günler!\n';
+    output += escpos.feed(3);
+    output += escpos.cut();
+
+    return output;
+  },
+  /** Format an Adisyon (Bill) Receipt */
+  async bill(data: {
+    restaurantName: string;
+    orderNumber: string;
+    tableNumber: number;
+    waiterName: string;
+    customer?: { name: string; phone?: string | null; address?: string | null };
+    items: Array<{ name: string; quantity: number; price: number; notes?: string }>;
+    total: number;
+    timestamp: Date;
+    payments?: Array<{ method: string; amount: number }>;
+    layout?: PrintLayout;
+    paymentMethod?: string | null;
+    notes?: string | null;
+  }): Promise<Buffer> {
+    let output = '';
+
+    // A supplied layout is authoritative. In particular, an intentionally
+    // empty header must stay empty; falling back to restaurantName made the
+    // physical receipt disagree with the preview and defeated name hiding.
+    const headerText = data.layout?.hideHeader
+      ? ''
+      : data.layout
+        ? (data.layout.headerText ?? '')
+        : data.restaurantName;
+    const subHeaderText = data.layout?.subHeaderText || '';
+    const receiptTitle = data.layout?.receiptTitle || 'ADİSYON';
+    const footerText = data.layout?.footerText || 'TEŞEKKÜR EDERİZ';
+    const paperWidth = getPaperWidth(data.layout?.paperWidth);
+    const columns = PAPER_COLUMNS[paperWidth];
+    const hidePrices = data.layout?.hidePrices || false;
+    const isDoubleSize = data.layout?.doubleSizeItems || false;
+
+    let imageBuffer: Buffer = Buffer.alloc(0);
+    if (data.layout?.logoUrl && !data.layout?.hideLogo) {
+      imageBuffer = await createRasterImageBuffer(
+        data.layout.logoUrl,
+        logoWidthToPixels(data.layout.logoWidth, paperWidth),
+        data.layout.logoPosition || 'center',
+      );
+    }
+
+    output += escpos.align('center');
+
+    if (headerText) {
+      output += escpos.bold(true);
+      output += escpos.doubleSize(true);
+      output += `${wrapText(headerText, Math.floor(columns / 2)).join('\n')}\n`;
+      output += escpos.doubleSize(false);
+      output += escpos.bold(false);
+    }
+    
+    if (subHeaderText) {
+      output += escpos.bold(true);
+      output += `${wrapText(subHeaderText, columns).join('\n')}\n`;
+      output += escpos.bold(false);
+    }
+
+    output += escpos.separator('-', columns);
+
+    output += escpos.align('center');
+    output += escpos.bold(true);
+    output += `${wrapText(receiptTitle.toUpperCase(), columns).join('\n')}\n`;
+    output += escpos.bold(false);
+    output += escpos.separator('-', columns);
+
+    output += escpos.align('left');
+    if (data.customer) {
+      output += escpos.separator('.', columns);
+      output += escpos.bold(true);
+      output += `Müşteri: ${fitText(data.customer.name, columns - 9)}\n`;
+      output += escpos.bold(false);
+      if (data.customer.phone) output += `Telefon: ${fitText(data.customer.phone, columns - 9)}\n`;
+      if (data.customer.address) {
+        for (const line of wrapText(`Adres: ${data.customer.address}`, columns)) {
+          output += `${line}\n`;
+        }
+      }
+      output += escpos.separator('.', columns);
+    }
+
+    if (data.notes) {
+      output += escpos.bold(true);
+      for (const line of wrapText(`SİPARİŞ NOTU: ${data.notes}`, columns)) {
+        output += `${line}\n`;
+      }
+      output += escpos.bold(false);
+      output += escpos.separator('.', columns);
+    }
+
+    output += receiptMetadata(
+      data.timestamp,
+      data.tableNumber,
+      columns,
+      Boolean(data.layout?.inlineDateMasa),
+      Boolean(data.layout?.doubleSizeTable),
+    );
+
+    output += escpos.bold(true);
+    output += `Fiş No: #${data.orderNumber}\n`;
+    output += escpos.bold(false);
+    if (data.waiterName) output += `Garson: ${fitText(data.waiterName, columns - 8)}\n`;
+
+    output += escpos.separator('-', columns);
+
+    output += escpos.align('left');
+    if (!isDoubleSize) {
+      const quantityWidth = 5;
+      const priceWidth = hidePrices ? 0 : 12;
+      const nameWidth = columns - quantityWidth - priceWidth;
+      output += `${'ÜRÜN'.padEnd(nameWidth)}${'ADET'.padStart(quantityWidth)}${hidePrices ? '' : 'TUTAR'.padStart(priceWidth)}\n`;
+      output += escpos.separator('-', columns);
+    }
+
+    for (const item of data.items) {
+      const priceStr = `${Number(item.price).toFixed(2)} TL`;
+      if (isDoubleSize) {
+        const doubleColumns = Math.floor(columns / 2);
+        output += escpos.doubleSize(true);
+        if (data.layout?.boldItems) output += escpos.bold(true);
+        for (const line of wrapText(`${item.quantity}x ${item.name.toUpperCase()}`, doubleColumns)) {
+          output += `${line}\n`;
+        }
+        if (!hidePrices) {
+          output += escpos.align('right');
+          output += `${fitText(priceStr, doubleColumns)}\n`;
+          output += escpos.align('left');
+        }
+        if (data.layout?.boldItems) output += escpos.bold(false);
+        output += escpos.doubleSize(false);
+      } else {
+        const quantityWidth = 5;
+        const priceWidth = hidePrices ? 0 : 12;
+        const nameWidth = columns - quantityWidth - priceWidth;
+        const row = `${fitText(item.name.toUpperCase(), nameWidth).padEnd(nameWidth)}${String(item.quantity).padStart(quantityWidth)}${hidePrices ? '' : fitText(priceStr, priceWidth).padStart(priceWidth)}`;
+        if (data.layout?.boldItems) output += escpos.bold(true);
+        output += `${row}\n`;
+        if (data.layout?.boldItems) output += escpos.bold(false);
+      }
+      // Adisyonda ürün notlarını yazdır (İKRAM değilse)
+      if ((item as any).notes && !(item as any).notes.includes('[İKRAM]')) {
+        output += escpos.bold(true);
+        for (const noteLine of wrapText(`NOT: ${(item as any).notes}`, columns - 2)) {
+          output += `  ${noteLine}\n`;
+        }
+        output += escpos.bold(false);
+      }
+      output += escpos.separator('.', columns);
+    }
+
+    if (!hidePrices) {
+      output += escpos.align('left');
+      output += escpos.bold(true);
+      output += escpos.doubleSize(true);
+      const halfCols = Math.floor(columns / 2);
+      output += `${twoColumnLine('TOPLAM', `${Number(data.total).toFixed(2)} TL`, halfCols)}\n`;
+      output += escpos.doubleSize(false);
+      output += escpos.bold(false);
+
+      // Ödeme tipini göster (paket fişinde kalın ve büyük)
+      if (data.paymentMethod) {
+        const paymentLabel =
+          data.paymentMethod === 'CASH' ? 'NAKİT' :
+          data.paymentMethod === 'CARD' ? 'KREDİ KARTI' :
+          data.paymentMethod === 'IBAN' ? 'HAVALE/IBAN' :
+          data.paymentMethod === 'YEMEK_SEPETI' ? 'YEMEK SEPETİ' :
+          data.paymentMethod === 'TRENDYOL_GO' ? 'TRENDYOL GO' :
+          data.paymentMethod === 'GETIR' ? 'GETİR' :
+          data.paymentMethod;
+        output += escpos.separator('-', columns);
+        output += escpos.align('center');
+        output += escpos.bold(true);
+        output += escpos.doubleSize(true);
+        output += `${paymentLabel}\n`;
+        output += escpos.doubleSize(false);
+        output += escpos.bold(false);
+        output += escpos.align('left');
+      }
+
+      if (data.payments && data.payments.length > 0) {
+        output += escpos.feed(1);
+        output += escpos.separator('-', columns);
+        output += escpos.bold(true);
+        output += `TAHSİLATLAR:\n`;
+        output += escpos.bold(false);
+        let totalPaid = 0;
+        const methodLabels: Record<string, string> = {
+          CASH: 'Nakit Ödeme', CARD: 'Kredi Kartı', IBAN: 'Havale/EFT',
+          YEMEK_SEPETI: 'Yemek Sepeti', TRENDYOL_GO: 'Trendyol Go', GETIR: 'Getir'
+        };
+        for (const payment of data.payments) {
+          const label = methodLabels[payment.method] || payment.method;
+          output += `${twoColumnLine(label, `${Number(payment.amount).toFixed(2)} TL`, columns)}\n`;
+          totalPaid += Number(payment.amount);
+        }
+        
+        const remaining = Number(data.total) - totalPaid;
+        output += escpos.separator('-', columns);
+        output += escpos.bold(true);
+        output += escpos.doubleSize(true);
+        output += `${twoColumnLine('KALAN', `${remaining.toFixed(2)} TL`, halfCols)}\n`;
+        output += escpos.doubleSize(false);
+        output += escpos.bold(false);
+      }
+    }
+    output += escpos.separator('-', columns);
+
+    output += escpos.align('center');
+    output += escpos.bold(true);
+    output += `${wrapText(footerText, columns).join('\n')}\n`;
+    output += escpos.bold(false);
+    output += escpos.feedDots(TP850_CUT_FEED_DOTS);
+    output += escpos.cut();
+
+    const prefix = escpos.init() + BEEP_CMD + BEL + escpos.feedDots(topMarginMmToDots(data.layout?.topMarginMm));
+    return Buffer.concat([turkishToCP857(prefix), imageBuffer, turkishToCP857(output)]);
+  },
+
+  /** Format an E-Archive Invoice Info Receipt */
+  invoiceInfo(data: {
+    orderNumber: string;
+    uuid: string;
+    invoiceNo: string;
+    totalAmount: number;
+    customerName: string;
+    pdfUrl?: string;
+  }): string {
+    let output = '';
+
+    output += escpos.init();
+    output += BEL; // Yazıcı sesi — e-Arşiv faturada 'dit!' çalar
+    output += escpos.align('center');
+    output += escpos.bold(true);
+    output += escpos.doubleSize(true);
+    output += `e-Arşiv Fatura Bilgi Fişi\n`;
+    output += escpos.doubleSize(false);
+    output += escpos.bold(false);
+    output += escpos.separator('=');
+    output += escpos.feed(1);
+
+    output += escpos.align('left');
+    output += `Sayın: ${data.customerName}\n`;
+    output += `Tarih: ${new Date().toLocaleString('tr-TR')}\n`;
+    output += escpos.separator();
+    
+    output += `Fatura No : ${data.invoiceNo}\n`;
+    output += `ETTN      : ${data.uuid}\n`;
+    output += `Tutar     : ${data.totalAmount.toFixed(2)} TL\n`;
+    output += escpos.separator();
+
+    output += escpos.align('center');
+    output += escpos.feed(1);
+    
+    // Print QR Code if URL is available
+    if (data.pdfUrl) {
+      // ESC/POS QR Code command logic
+      // Function 165: Store data
+      const urlLength = data.pdfUrl.length + 3;
+      const pL = urlLength % 256;
+      const pH = Math.floor(urlLength / 256);
+      
+      // QR model 2
+      output += `\x1D\x28\x6B\x04\x00\x31\x41\x32\x00`;
+      // QR size 6
+      output += `\x1D\x28\x6B\x03\x00\x31\x43\x06`;
+      // Error correction level M (15%)
+      output += `\x1D\x28\x6B\x03\x00\x31\x45\x31`;
+      // Store data
+      output += `\x1D\x28\x6B${String.fromCharCode(pL)}${String.fromCharCode(pH)}\x31\x50\x30${data.pdfUrl}`;
+      // Print QR
+      output += `\x1D\x28\x6B\x03\x00\x31\x51\x30`;
+      
+      output += escpos.feed(1);
+      output += `QR Kodu okutarak faturanizi\ngoruntuleyebilirsiniz.\n`;
+    }
+
+    output += escpos.feed(3);
+    output += escpos.cut();
+
+    return output;
+  }
+};

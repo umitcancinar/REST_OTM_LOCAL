@@ -1,0 +1,254 @@
+.modal {
+  width: 100%;
+  max-width: 460px;
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  padding: 32px;
+  gap: 28px;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-2xl);
+  animation: slideUp 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.titleGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.title {
+  font-size: 1.625rem;
+  font-weight: 900;
+  color: var(--text-primary);
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.basePrice {
+  font-size: 1rem;
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.closeBtn {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.closeBtn:hover {
+  transform: rotate(90deg);
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.label {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.portionsGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.portionBtn {
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  border: 2px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-weight: 700;
+  font-size: 1rem;
+  text-align: center;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.portionBtnActive {
+  border-color: var(--accent);
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.portionPrice {
+  font-size: 0.8125rem;
+  opacity: 0.8;
+  font-weight: 600;
+}
+
+.quantityControl {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  background: var(--bg-elevated);
+  padding: 8px;
+  border-radius: var(--radius-full);
+  width: fit-content;
+  border: 1px solid var(--border);
+}
+
+.qtyVal {
+  font-size: 1.75rem;
+  font-weight: 900;
+  width: 48px;
+  text-align: center;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.notesInput {
+  width: 100%;
+  height: 120px;
+  resize: none;
+  padding: 18px;
+  background: var(--bg-input);
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  font-family: var(--font-primary);
+  font-size: 0.9375rem;
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+.notesInput:focus {
+  border-color: var(--accent);
+  background: var(--bg-surface);
+  box-shadow: 0 0 0 4px var(--accent-light);
+}
+
+.footerBtn {
+  width: 100%;
+  height: 68px;
+  border-radius: var(--radius-xl);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 32px;
+  margin-top: 12px;
+  background: var(--gradient-accent);
+  color: white;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-glow);
+}
+
+.footerBtn:active {
+  transform: scale(0.97);
+}
+
+.footerBtnText {
+  font-size: 1.125rem;
+  font-weight: 800;
+}
+
+.footerBtnPrice {
+  font-size: 1.375rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+}
+
+
+@keyframes slideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* ── Decimal quantity grid ─────────────────────────────────────── */
+.decimalGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.decimalChip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 14px 8px;
+  border-radius: var(--radius-lg);
+  border: 2px solid var(--border);
+  background: var(--bg-elevated);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.decimalChip:hover {
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+
+.decimalChipActive {
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+
+.decimalFraction {
+  font-size: 1.75rem;
+  font-weight: 900;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.decimalChipActive .decimalFraction {
+  color: var(--accent);
+}
+
+.decimalLabel {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  opacity: 0.8;
+}
+
+.decimalChipActive .decimalLabel {
+  color: var(--accent);
+}
+
+@media (max-width: 480px) {
+  .modal {
+    padding: 24px 20px;
+    gap: 20px;
+    max-height: 95vh;
+  }
+
+  .title {
+    font-size: 1.375rem;
+  }
+
+  .quantityControl {
+    gap: 16px;
+  }
+}

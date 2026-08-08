@@ -1,0 +1,72 @@
+# ==========================================
+# REST_OTM — Multi-Tenant Restaurant SaaS
+# ==========================================
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Environment variables (NEVER commit)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Yedekleme sirlari (NEVER commit)
+# Doldurulmus pgbackrest.conf nesne deposu anahtarini ve yedek sifreleme
+# parolasini icerir; .example uzantili sablon surumu commit edilir.
+infra/backup/pgbackrest.conf
+backup.env
+
+# Build outputs
+# dist/ — allowed for apps/api so Render can use pre-built JS
+build/
+.next/
+out/
+
+# Turborepo
+.turbo/
+
+# Prisma
+apps/api/prisma/migrations/**/migration_lock.toml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test coverage
+coverage/
+
+# Docker volumes
+postgres-data/
+redis-data/
+
+# PWA generated
+apps/waiter/public/workbox-*.js
+apps/waiter/public/sw.js.map
+
+# Misc
+*.tsbuildinfo
+.eslintcache
+
+# Firebase Secrets
+apps/api/src/config/firebase-service-account.json
+
+# Gecici / silinecek dosyalar
+_to_delete/

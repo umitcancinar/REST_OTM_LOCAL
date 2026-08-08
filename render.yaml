@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: rest-otm-api
+    plan: free
+    env: node
+    # Always compile the API on Render. Running a checked-in dist/ directory
+    # without this step can silently deploy stale printing/layout behavior.
+    buildCommand: npm install -g pnpm && pnpm install --prod=false --no-frozen-lockfile && pnpm --filter @rest-otm/receipt-core build && pnpm --filter @rest-otm/api build
+    startCommand: cd apps/api && pnpm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        sync: false
+      # DIKKAT: Bu isimler apps/api/src/config/env.ts icinde okunan isimlerle
+      # birebir ayni olmak zorunda. Daha once burada JWT_SECRET / ADMIN_SECRET
+      # yaziyordu; kod ise JWT_ACCESS_SECRET / JWT_REFRESH_SECRET okuyordu.
+      # Isimler tutmadigi icin API, kaynak kodda yazili varsayilan sirla
+      # calisiyordu. Artik eksik/zayif sirda surec hic baslamiyor.
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: PRINT_AGENT_SECRET
+        sync: false
+      # Panel ve garson paneli adresleri, virgulle ayrilmis.
+      - key: CORS_ORIGIN
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
+      - key: SUPER_ADMIN_EMAIL
+        sync: false
+      - key: SUPER_ADMIN_PASSWORD
+        sync: false

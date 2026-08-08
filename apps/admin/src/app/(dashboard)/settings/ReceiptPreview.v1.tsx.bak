@@ -1,0 +1,118 @@
+'use client';
+
+import type { CSSProperties } from 'react';
+import type { PrintLayout, PrintLayoutKey } from '@/lib/printing';
+import styles from './page.module.css';
+
+const TITLES: Record<PrintLayoutKey, string> = {
+  CASHIER: 'ADİSYON',
+  KITCHEN: 'FIRIN FİŞİ',
+  GRILL: 'IZGARA FİŞİ',
+  PAKET: 'PAKET SİPARİŞ',
+};
+
+interface ReceiptPreviewProps {
+  type: PrintLayoutKey;
+  layout: PrintLayout;
+}
+
+export default function ReceiptPreview({ type, layout }: ReceiptPreviewProps) {
+  const paperWidth = layout.paperWidth === 58 ? 58 : 80;
+  const isTakeaway = type === 'PAKET';
+  const hidePrices = Boolean(layout.hidePrices);
+  const receiptStyle = {
+    '--receipt-scale-width': paperWidth === 58 ? '250px' : '320px',
+    paddingTop: `${Math.min(30, Math.max(0, Number(layout.topMarginMm) || 0)) * 2}px`,
+  } as CSSProperties;
+
+  return (
+    <div className={styles.previewStage}>
+      <div className={styles.previewToolbar}>
+        <span>Fiziksel çıktı önizlemesi</span>
+        <span className={styles.paperBadge}>{paperWidth} mm</span>
+      </div>
+
+      <div className={styles.receipt} style={receiptStyle}>
+        {!layout.hideLogo && layout.logoUrl && (
+          // User-defined remote logo URLs cannot be used with next/image safely.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            key={layout.logoUrl}
+            src={layout.logoUrl}
+            alt="Fiş logosu"
+            className={styles.receiptLogo}
+            style={{
+              width: `${Math.min(paperWidth, Math.max(1, Number(layout.logoWidth) || 50))}mm`,
+              alignSelf: layout.logoPosition === 'left' ? 'flex-start' : layout.logoPosition === 'right' ? 'flex-end' : 'center',
+            }}
+            onError={(event) => { event.currentTarget.style.display = 'none'; }}
+          />
+        )}
+
+        {!layout.hideHeader && layout.headerText && <div className={styles.receiptBrand}>{layout.headerText}</div>}
+        {layout.subHeaderText && <div className={styles.receiptSubhead}>{layout.subHeaderText}</div>}
+        <div className={styles.receiptTitle}>{layout.receiptTitle || TITLES[type]}</div>
+
+        {isTakeaway && (
+          <div className={styles.customerBlock}>
+            <strong>Örnek Müşteri</strong>
+            <span>0555 000 00 00</span>
+            <span>Örnek Mahallesi No: 12</span>
+          </div>
+        )}
+
+        {layout.inlineDateMasa ? (
+          <div className={styles.inlineMeta}>
+            <span>25.07.2026 11:44</span>
+            <strong style={{ fontSize: layout.doubleSizeTable && !isTakeaway ? 18 : undefined }}>{isTakeaway ? 'PAKET' : 'MASA: 12'}</strong>
+          </div>
+        ) : (
+          <div className={styles.receiptMeta}>
+            <span>Tarih : 25.07.2026</span>
+            <span>Saat&nbsp;&nbsp;: 11:44</span>
+            <span style={{ fontSize: layout.doubleSizeTable && !isTakeaway ? 18 : undefined, fontWeight: layout.doubleSizeTable ? 900 : undefined }}>{isTakeaway ? 'Sipariş: PAKET' : 'Masa  : 12'}</span>
+          </div>
+        )}
+
+        <div className={styles.orderNumber}>Fiş No: #TEST-001</div>
+        <div className={styles.waiterLine}>Garson: Test Kullanıcısı</div>
+
+        {!layout.doubleSizeItems && (
+          <div className={`${styles.receiptRow} ${styles.receiptHead}`}>
+            <span>ÜRÜN</span>
+            <span>ADET</span>
+            {!hidePrices && <span>TUTAR</span>}
+          </div>
+        )}
+
+        <div className={styles.receiptItems}>
+          {[
+            ['ADANA KEBAP', '2', '900.00 TL'],
+            ['AYRAN', '1', '60.00 TL'],
+          ].map(([name, quantity, price]) => (
+            <div
+              key={name}
+              className={`${styles.receiptRow} ${layout.doubleSizeItems ? styles.doubleItem : ''} ${layout.boldItems ? styles.boldItem : ''}`}
+            >
+              <span>{layout.doubleSizeItems ? `${quantity}x ${name}` : name}</span>
+              {!layout.doubleSizeItems && <span>{quantity}</span>}
+              {!hidePrices && <span>{price}</span>}
+            </div>
+          ))}
+          {(type === 'KITCHEN' || type === 'GRILL') && <div className={styles.receiptNote}>!! NOT: Az pişmiş</div>}
+        </div>
+
+        {!hidePrices && (
+          <div className={styles.receiptTotal}>
+            <span>TOPLAM</span>
+            <strong>960.00 TL</strong>
+          </div>
+        )}
+
+        <div className={styles.receiptFooter}>{layout.footerText || 'TEŞEKKÜR EDERİZ'}</div>
+      </div>
+
+      <p className={styles.previewHint}>ESC/POS sütun ölçüleri ve görünürlük ayarlarıyla eşleştirilmiştir.</p>
+    </div>
+  );
+}
