@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "productVersion": "1.0.0",
+  "files": [
+    {
+      "relativePath": "bin/restotm-runtime-service.exe",
+      "sha256": "REPLACE_WITH_64_HEX_CHARACTERS",
+      "role": "runtime-service",
+      "authenticodeRequired": true
+    },
+    {
+      "relativePath": "bin/restotm-installer-bootstrap.exe",
+      "sha256": "REPLACE_WITH_64_HEX_CHARACTERS",
+      "role": "installer-bootstrap",
+      "authenticodeRequired": true
+    }
+  ]
+}

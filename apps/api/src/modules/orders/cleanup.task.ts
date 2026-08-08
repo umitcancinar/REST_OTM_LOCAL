@@ -6,8 +6,9 @@ import { getIO } from '../../websocket/socket.server';
  * Cleanup task that runs periodically to free up tables that have been 
  * occupied for more than 2 hours without any activity.
  */
-export async function runTableCleanupTask() {
+export async function runTableCleanupTask(assertOperationalLicense?: () => void) {
   try {
+    assertOperationalLicense?.();
     const twoHoursAgo = new Date();
     twoHoursAgo.setHours(twoHoursAgo.getHours() - 2);
 
@@ -24,7 +25,8 @@ export async function runTableCleanupTask() {
     logger.info(`🧹 Cleanup: Found ${staleTables.length} stale tables. Processing...`);
 
     for (const table of staleTables) {
-      // 1. Find and cancel stale orders for this table
+      // Acik adisyonu zaman gecmis diye otomatik iptal etmek finansal veri
+      // kaybidir. Yalnizca acik adisyonu olmayan unutulmus masayi serbest birak.
       const staleOrders = await prisma.order.findMany({
         where: {
           tableId: table.id,
@@ -35,17 +37,13 @@ export async function runTableCleanupTask() {
       });
 
       if (staleOrders.length > 0) {
-        await prisma.order.updateMany({
-          where: { id: { in: staleOrders.map(o => o.id) } },
-          data: { 
-            status: 'CANCELLED', 
-            isDeleted: true,
-            notes: (table.status as string) + ' [OTOMATİK İPTAL - 2 SAAT SİSTEM TEMİZLİĞİ]'
-          }
-        });
+        logger.warn(
+          `Cleanup: Masa ${table.number} acik adisyon tasidigi icin otomatik kapatilmadi.`,
+        );
+        continue;
       }
 
-      // 2. Free up the table
+      // Acik adisyon yoksa masanin durumu guvenle duzeltilebilir.
       await prisma.restaurantTable.update({
         where: { id: table.id },
         data: { status: 'AVAILABLE' }
@@ -71,14 +69,21 @@ export async function runTableCleanupTask() {
 /**
  * Initialize the cleanup interval
  */
-export function initCleanupTask() {
+export function initCleanupTask(assertOperationalLicense?: () => void): () => void {
   // Delay first run by 30 seconds to let DB connection stabilize
-  setTimeout(() => {
-    runTableCleanupTask();
+  const initialTimer = setTimeout(() => {
+    void runTableCleanupTask(assertOperationalLicense);
   }, 30 * 1000);
+  if (typeof initialTimer.unref === 'function') initialTimer.unref();
   
   // Run every 60 minutes (reduced from 15 to avoid unnecessary Neon DB wakeups)
-  setInterval(() => {
-    runTableCleanupTask();
+  const intervalTimer = setInterval(() => {
+    void runTableCleanupTask(assertOperationalLicense);
   }, 60 * 60 * 1000);
+  if (typeof intervalTimer.unref === 'function') intervalTimer.unref();
+
+  return () => {
+    clearTimeout(initialTimer);
+    clearInterval(intervalTimer);
+  };
 }

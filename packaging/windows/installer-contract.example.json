@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "serviceName": "RESTOTMRuntime",
+  "bootstrapExecutableRelativePath": "bin/restotm-installer-bootstrap.exe",
+  "firstRunProvisioning": true,
+  "uninstallPreservesCustomerData": true,
+  "licensePublicKeyRelativePath": "config/license-public-key.pem",
+  "secrets": {
+    "generatedPerInstallation": true,
+    "protection": "dpapi-local-machine-v1"
+  },
+  "network": {
+    "internalBind": "127.0.0.1",
+    "gatewayPort": 8787,
+    "gatewayFirewallProfile": "Private",
+    "gatewayRemoteScope": "LocalSubnet"
+  }
+}

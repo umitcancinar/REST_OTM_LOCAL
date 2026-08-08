@@ -37,10 +37,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     const token = localStorage.getItem('accessToken');
     if (!token) return;
 
-    const newSocket = io(process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:4000', {
-      auth: { token },
-      transports: ['websocket']
-    });
+    const socketOptions = { auth: { token }, transports: ['websocket'] as ['websocket'] };
+    const socketUrl = process.env.NEXT_PUBLIC_WS_URL
+      || process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/?$/, '');
+    const newSocket = socketUrl ? io(socketUrl, socketOptions) : io(socketOptions);
 
     setSocket(newSocket);
 

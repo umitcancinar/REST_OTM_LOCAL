@@ -2,27 +2,109 @@
 // Order Service — Core Business Logic
 // ==========================================
 
+import { Prisma } from '@prisma/client';
 import prisma from '../../config/database';
 import { logger } from '../../utils/logger';
 import { resolvePreparationDepartment } from '../../utils/department-routing';
 import { resolveItemPrintTrigger } from '../../utils/print-triggers';
 import { printService } from '../printing/print.service';
+import {
+  hashOrderCommand,
+  IdempotencyConflictError,
+} from './order-idempotency.policy';
+import {
+  allocateOrderNumber,
+} from './order-number.policy';
 
+const createdOrderInclude = {
+  table: { select: { number: true, zone: true } },
+  customer: true,
+  waiter: { select: { name: true } },
+  subChecks: { include: { items: true } },
+} as const;
 
-/** Generate a unique order number per tenant (e.g. ORD-001, ORD-002) */
-async function generateOrderNumber(tenantId: string): Promise<string> {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+export interface CreateOrderInput {
+  type?: string;
+  printToKitchen?: boolean;
+  tableId?: string;
+  customerId?: string;
+  customerName?: string;
+  customerPhone?: string;
+  customerAddress?: string;
+  notes?: string;
+  subChecks: Array<{
+    label: string;
+    items: Array<{
+      menuItemId: string;
+      quantity: number;
+      portionOption?: string;
+      portionMultiplier?: number;
+      extras?: Array<{ name: string; price: number }>;
+      notes?: string;
+    }>;
+  }>;
+}
 
-  const count = await prisma.order.count({
-    where: {
-      tenantId,
-      createdAt: { gte: today },
-    },
+export interface CreateOrderOptions {
+  idempotencyKey?: string;
+}
+
+export interface CreateOrderResult {
+  order: any;
+  isReplay: boolean;
+}
+
+/**
+ * Allocate inside the order transaction. PostgreSQL serializes the upsert on
+ * the tenant/day primary key, so distinct concurrent commands receive distinct
+ * monotonically increasing values. A rollback also rolls back the increment.
+ */
+async function generateOrderNumber(
+  tenantId: string,
+  client: Prisma.TransactionClient,
+  now: Date = new Date(),
+): Promise<string> {
+  return allocateOrderNumber(tenantId, async (counterTenantId, businessDate) => {
+    const rows = await client.$queryRaw<Array<{ value: number }>>(Prisma.sql`
+      INSERT INTO "order_counters" ("tenantId", "businessDate", "value", "updatedAt")
+      VALUES (${counterTenantId}, CAST(${businessDate} AS DATE), 1, CURRENT_TIMESTAMP)
+      ON CONFLICT ("tenantId", "businessDate")
+      DO UPDATE SET
+        "value" = "order_counters"."value" + 1,
+        "updatedAt" = CURRENT_TIMESTAMP
+      RETURNING "value"
+    `);
+    const sequence = rows[0]?.value;
+    if (sequence === undefined) throw new Error('Order counter did not return a value');
+    return sequence;
+  }, now);
+}
+
+async function loadIdempotentReplay(
+  tenantId: string,
+  idempotencyKey: string,
+  payloadHash: string,
+): Promise<CreateOrderResult | null> {
+  const command = await prisma.orderCommand.findUnique({
+    where: { tenantId_idempotencyKey: { tenantId, idempotencyKey } },
+    include: { order: { include: createdOrderInclude } },
   });
 
-  const number = (count + 1).toString().padStart(3, '0');
-  return `ORD-${number}`;
+  if (!command) return null;
+  if (command.payloadHash !== payloadHash) throw new IdempotencyConflictError();
+  if (!command.order) {
+    // A receipt and its result are committed atomically. Reaching this branch
+    // indicates manual database corruption rather than an in-flight request.
+    throw Object.assign(new Error('Idempotency receipt has no order result'), {
+      statusCode: 503,
+      code: 'IDEMPOTENCY_RESULT_UNAVAILABLE',
+    });
+  }
+
+  return {
+    order: { ...command.order, newItemIds: command.createdItemIds },
+    isReplay: true,
+  };
 }
 
 export const orderService = {
@@ -93,230 +175,201 @@ export const orderService = {
     };
   },
 
-  async create(tenantId: string, waiterId: string | null, data: {
-    type?: string;
-    tableId?: string;
-    customerId?: string;
-    customerName?: string;
-    customerPhone?: string;
-    customerAddress?: string;
-    notes?: string;
-    subChecks: Array<{
-      label: string;
-      items: Array<{
-        menuItemId: string;
-        quantity: number;
-        portionOption?: string;
-        portionMultiplier?: number;
-        extras?: Array<{ name: string; price: number }>;
-        notes?: string;
-      }>;
-    }>;
-  }) {
-    let finalCustomerId = data.customerId;
+  async create(
+    tenantId: string,
+    waiterId: string | null,
+    data: CreateOrderInput,
+    options: CreateOrderOptions = {},
+  ): Promise<CreateOrderResult> {
+    const idempotencyKey = options.idempotencyKey;
+    const payloadHash = idempotencyKey ? hashOrderCommand(data) : undefined;
 
-    // Auto-create/lookup customer if manual details provided
-    if (!finalCustomerId && data.customerName) {
-      const existingCustomer = await prisma.customer.findFirst({
-        where: {
-          tenantId,
-          phone: data.customerPhone || undefined,
-          name: { equals: data.customerName, mode: 'insensitive' }
-        }
-      });
-
-      if (existingCustomer) {
-        finalCustomerId = existingCustomer.id;
-      } else {
-        const newCustomer = await prisma.customer.create({
-          data: {
-            tenantId,
-            name: data.customerName,
-            phone: data.customerPhone || '',
-            address: data.customerAddress || ''
-          }
-        });
-        finalCustomerId = newCustomer.id;
-      }
-    }
-
-    const menuItemIds = data.subChecks.flatMap((sc) =>
-      sc.items.map((item) => item.menuItemId),
-    );
-    const menuItems = await prisma.menuItem.findMany({
-      where: { id: { in: menuItemIds }, tenantId },
-      include: { category: { select: { name: true } } },
-    });
-    const menuItemMap = new Map(menuItems.map((mi) => [mi.id, mi]));
-
-    // Check if an active order already exists for this table
-    // Tip acikca yazilir: strictNullChecks altinda `= null` baslangici tek
-    // basina `null` tipine cozulur ve sonraki atama hata verir.
-    let existingOrder: Awaited<ReturnType<typeof prisma.order.findFirst>> = null;
-    if (data.tableId && data.type !== 'TAKEAWAY') {
-      existingOrder = await prisma.order.findFirst({
-        where: {
-          tenantId,
-          tableId: data.tableId,
-          isDeleted: false,
-          status: { notIn: ['COMPLETED', 'CANCELLED'] }
-        }
-      });
-    }
-
-    if (existingOrder) {
-      // `const`'a alinir: `let` uzerindeki daraltma asagidaki transaction
-      // geri cagirmasi icinde kaybolur, boylece `!` kullanmaya gerek kalmaz.
-      const activeOrder = existingOrder;
-
-      // Append items to existing order
-      let totalAddedAmount = 0;
-      const newItemIds: string[] = [];
-
-      const updatedOrder = await prisma.$transaction(async (tx) => {
-        for (const sc of data.subChecks) {
-          let subCheckTotal = 0;
-          const items = sc.items.map((item) => {
-            const menuItem = menuItemMap.get(item.menuItemId);
-            if (!menuItem) throw new Error(`Menu item ${item.menuItemId} not found`);
-
-            const multiplier = item.portionMultiplier || 1;
-            const extrasTotal = (item.extras || []).reduce((sum, e) => sum + e.price, 0);
-            const itemTotal = (menuItem.basePrice * multiplier + extrasTotal) * item.quantity;
-            subCheckTotal += itemTotal;
-
-            return {
-              menuItemId: item.menuItemId,
-              menuItemName: menuItem.name,
-              quantity: item.quantity,
-              portionOption: item.portionOption || 'Normal',
-              portionMultiplier: multiplier,
-              unitPrice: menuItem.basePrice,
-              extras: item.extras || [],
-              totalPrice: itemTotal,
-              notes: item.notes,
-              department: resolvePreparationDepartment(
-                menuItem.department,
-                menuItem.category.name,
-              ),
-              status: 'PENDING' as const,
-            };
+    try {
+      const result = await prisma.$transaction(async (tx) => {
+        // Insert first. PostgreSQL holds the unique-index conflict until this
+        // transaction commits, so concurrent retries cannot both mutate an order.
+        if (idempotencyKey && payloadHash) {
+          await tx.orderCommand.create({
+            data: { tenantId, idempotencyKey, payloadHash },
           });
-          
-          totalAddedAmount += subCheckTotal;
+        }
 
-          const createdSubCheck = await tx.subCheck.create({
-            data: {
-              orderId: activeOrder.id,
-              label: sc.label,
-              subtotal: subCheckTotal,
-              items: { create: items }
+        let finalCustomerId = data.customerId;
+        if (!finalCustomerId && data.customerName) {
+          const existingCustomer = await tx.customer.findFirst({
+            where: {
+              tenantId,
+              phone: data.customerPhone || undefined,
+              name: { equals: data.customerName, mode: 'insensitive' },
             },
-            include: { items: { select: { id: true } } },
           });
-          newItemIds.push(...createdSubCheck.items.map((item) => item.id));
+
+          if (existingCustomer) {
+            finalCustomerId = existingCustomer.id;
+          } else {
+            const newCustomer = await tx.customer.create({
+              data: {
+                tenantId,
+                name: data.customerName,
+                phone: data.customerPhone || '',
+                address: data.customerAddress || '',
+              },
+            });
+            finalCustomerId = newCustomer.id;
+          }
         }
 
-        const persistedOrder = await tx.order.update({
-          where: { id: activeOrder.id },
-          data: {
-            totalAmount: { increment: totalAddedAmount },
-            grandTotal: { increment: totalAddedAmount },
-          },
-          include: {
-            table: { select: { number: true, zone: true } },
-            customer: true,
-            waiter: { select: { name: true } },
-            subChecks: { include: { items: true } },
-          }
+        const menuItemIds = data.subChecks.flatMap((sc) =>
+          sc.items.map((item) => item.menuItemId),
+        );
+        const menuItems = await tx.menuItem.findMany({
+          where: { id: { in: menuItemIds }, tenantId },
+          include: { category: { select: { name: true } } },
         });
-        return { ...persistedOrder, newItemIds };
-      });
+        const menuItemMap = new Map(menuItems.map((menuItem) => [menuItem.id, menuItem]));
 
-      logger.info(`Appended items to existing order: ${activeOrder.orderNumber}`);
-      return updatedOrder;
-    }
+        const existingOrder = data.tableId && data.type !== 'TAKEAWAY'
+          ? await tx.order.findFirst({
+              where: {
+                tenantId,
+                tableId: data.tableId,
+                isDeleted: false,
+                status: { notIn: ['COMPLETED', 'CANCELLED'] },
+              },
+            })
+          : null;
 
-    // Otherwise, create a new order
-    const orderNumber = await generateOrderNumber(tenantId);
-    let totalAmount = 0;
+        let persistedOrder: any;
+        let newItemIds: string[] = [];
 
-    const order = await prisma.$transaction(async (tx) => {
-      const newOrder = await tx.order.create({
-        data: {
-          tenantId,
-          type: data.type || 'DINE_IN',
-          tableId: data.tableId,
-          customerId: finalCustomerId,
-          waiterId,
-          orderNumber,
-          notes: data.notes,
-          status: 'PENDING',
-          subChecks: {
-            create: data.subChecks.map((sc) => {
-              let subCheckTotal = 0;
+        if (existingOrder) {
+          let totalAddedAmount = 0;
+          for (const subCheck of data.subChecks) {
+            let subCheckTotal = 0;
+            const items = subCheck.items.map((item) => {
+              const menuItem = menuItemMap.get(item.menuItemId);
+              if (!menuItem) throw Object.assign(new Error(`Menu item ${item.menuItemId} not found`), { statusCode: 404 });
 
-              const items = sc.items.map((item) => {
-                const menuItem = menuItemMap.get(item.menuItemId);
-                if (!menuItem) throw new Error(`Menu item ${item.menuItemId} not found`);
-
-                const multiplier = item.portionMultiplier || 1;
-                const extrasTotal = (item.extras || []).reduce((sum, e) => sum + e.price, 0);
-                const itemTotal = (menuItem.basePrice * multiplier + extrasTotal) * item.quantity;
-                subCheckTotal += itemTotal;
-
-                return {
-                  menuItemId: item.menuItemId,
-                  menuItemName: menuItem.name,
-                  quantity: item.quantity,
-                  portionOption: item.portionOption || 'Normal',
-                  portionMultiplier: multiplier,
-                  unitPrice: menuItem.basePrice,
-                  extras: item.extras || [],
-                  totalPrice: itemTotal,
-                  notes: item.notes,
-                  department: resolvePreparationDepartment(
-                    menuItem.department,
-                    menuItem.category.name,
-                  ),
-                  status: 'PENDING' as const,
-                };
-              });
-
-              totalAmount += subCheckTotal;
-
+              const multiplier = item.portionMultiplier || 1;
+              const extrasTotal = (item.extras || []).reduce((sum, extra) => sum + extra.price, 0);
+              const itemTotal = (menuItem.basePrice * multiplier + extrasTotal) * item.quantity;
+              subCheckTotal += itemTotal;
               return {
-                label: sc.label,
+                menuItemId: item.menuItemId,
+                menuItemName: menuItem.name,
+                quantity: item.quantity,
+                portionOption: item.portionOption || 'Normal',
+                portionMultiplier: multiplier,
+                unitPrice: menuItem.basePrice,
+                extras: item.extras || [],
+                totalPrice: itemTotal,
+                notes: item.notes,
+                department: resolvePreparationDepartment(menuItem.department, menuItem.category.name),
+                status: 'PENDING' as const,
+              };
+            });
+
+            totalAddedAmount += subCheckTotal;
+            const createdSubCheck = await tx.subCheck.create({
+              data: {
+                orderId: existingOrder.id,
+                label: subCheck.label,
                 subtotal: subCheckTotal,
                 items: { create: items },
-              };
-            }),
-          },
-          totalAmount,
-          grandTotal: totalAmount,
-        },
-        include: {
-          table: { select: { number: true, zone: true } },
-          customer: true,
-          waiter: { select: { name: true } },
-          subChecks: { include: { items: true } },
-        },
+              },
+              include: { items: { select: { id: true } } },
+            });
+            newItemIds.push(...createdSubCheck.items.map((item) => item.id));
+          }
+
+          persistedOrder = await tx.order.update({
+            where: { id: existingOrder.id },
+            data: {
+              totalAmount: { increment: totalAddedAmount },
+              grandTotal: { increment: totalAddedAmount },
+            },
+            include: createdOrderInclude,
+          });
+          logger.info(`Appended items to existing order: ${existingOrder.orderNumber}`);
+        } else {
+          const orderNumber = await generateOrderNumber(tenantId, tx);
+          let totalAmount = 0;
+          persistedOrder = await tx.order.create({
+            data: {
+              tenantId,
+              type: data.type || 'DINE_IN',
+              tableId: data.tableId,
+              customerId: finalCustomerId,
+              waiterId,
+              orderNumber,
+              notes: data.notes,
+              status: 'PENDING',
+              subChecks: {
+                create: data.subChecks.map((subCheck) => {
+                  let subCheckTotal = 0;
+                  const items = subCheck.items.map((item) => {
+                    const menuItem = menuItemMap.get(item.menuItemId);
+                    if (!menuItem) throw Object.assign(new Error(`Menu item ${item.menuItemId} not found`), { statusCode: 404 });
+
+                    const multiplier = item.portionMultiplier || 1;
+                    const extrasTotal = (item.extras || []).reduce((sum, extra) => sum + extra.price, 0);
+                    const itemTotal = (menuItem.basePrice * multiplier + extrasTotal) * item.quantity;
+                    subCheckTotal += itemTotal;
+                    return {
+                      menuItemId: item.menuItemId,
+                      menuItemName: menuItem.name,
+                      quantity: item.quantity,
+                      portionOption: item.portionOption || 'Normal',
+                      portionMultiplier: multiplier,
+                      unitPrice: menuItem.basePrice,
+                      extras: item.extras || [],
+                      totalPrice: itemTotal,
+                      notes: item.notes,
+                      department: resolvePreparationDepartment(menuItem.department, menuItem.category.name),
+                      status: 'PENDING' as const,
+                    };
+                  });
+                  totalAmount += subCheckTotal;
+                  return {
+                    label: subCheck.label,
+                    subtotal: subCheckTotal,
+                    items: { create: items },
+                  };
+                }),
+              },
+              totalAmount,
+              grandTotal: totalAmount,
+            },
+            include: createdOrderInclude,
+          });
+          newItemIds = persistedOrder.subChecks.flatMap((subCheck: any) =>
+            subCheck.items.map((item: any) => item.id),
+          );
+
+          if (data.tableId) await orderService.syncTableStatus(tenantId, data.tableId, tx);
+          logger.info(`Order created: ${orderNumber}`);
+        }
+
+        if (idempotencyKey) {
+          await tx.orderCommand.update({
+            where: { tenantId_idempotencyKey: { tenantId, idempotencyKey } },
+            data: { orderId: persistedOrder.id, createdItemIds: newItemIds },
+          });
+        }
+
+        return { order: { ...persistedOrder, newItemIds }, isReplay: false };
       });
 
-      // Ensure table status is updated
-      if (data.tableId) {
-        await this.syncTableStatus(tenantId, data.tableId, tx);
+      return result;
+    } catch (error) {
+      const isUniqueConflict =
+        error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+      if (isUniqueConflict && idempotencyKey && payloadHash) {
+        const replay = await loadIdempotentReplay(tenantId, idempotencyKey, payloadHash);
+        if (replay) return replay;
       }
-
-      return newOrder;
-    });
-
-    logger.info(`Order created: ${orderNumber}`);
-
-    return {
-      ...order,
-      newItemIds: order.subChecks.flatMap((subCheck) => subCheck.items.map((item) => item.id)),
-    };
+      throw error;
+    }
   },
 
   async updateStatus(tenantId: string, orderId: string, status: string, paymentMethod?: string, amount?: number) {

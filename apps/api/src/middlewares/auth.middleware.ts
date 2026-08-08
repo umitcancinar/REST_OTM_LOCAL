@@ -4,7 +4,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { env } from '../config/env';
+import { sharedEnv } from '../config/env.shared';
 import { apiError } from '../utils/apiResponse';
 
 export interface AuthenticatedRequest extends Request {
@@ -31,7 +31,7 @@ export function authMiddleware(req: AuthenticatedRequest, res: Response, next: N
       return;
     }
 
-    const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET) as {
+    const decoded = jwt.verify(token, sharedEnv.JWT_ACCESS_SECRET) as {
       userId: string;
       tenantId: string;
       role: string;

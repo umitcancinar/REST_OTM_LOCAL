@@ -13,8 +13,13 @@
 import { issueLicense } from '@rest-otm/license/sign';
 import type { LicenseEntitlement } from '@rest-otm/license';
 import prisma from '../../config/database';
-import { env } from '../../config/env';
+import { cloudEnv } from '../../config/env.cloud';
 import { logger } from '../../utils/logger';
+import {
+  assertSignableStatus,
+  isActivationEligible,
+  isHeartbeatEligible,
+} from './license-lifecycle.policy';
 
 /** Yoklama araligi: lokal taraf bu siklikta baglanir. */
 export const HEARTBEAT_INTERVAL_HOURS = 1;
@@ -59,9 +64,13 @@ function sign(license: {
   tenant: { name: string };
   tenantActive: boolean;
 }) {
-  if (!env.LICENSE_PRIVATE_KEY) {
+  if (!cloudEnv.LICENSE_PRIVATE_KEY) {
     throw Object.assign(new Error('Lisans sunucusu yapılandırılmamış.'), { statusCode: 503 });
   }
+
+  // PENDING bir kaydin aktif entitlement'a dusmesi aktivasyon/reset cihaz
+  // bagini baypas eder. Bu durum imzalanabilir bir lisans degildir.
+  assertSignableStatus(license.status);
 
   return issueLicense(
     {
@@ -80,7 +89,7 @@ function sign(license: {
             ? 'revoked'
             : 'active') as LicenseEntitlement,
     },
-    env.LICENSE_PRIVATE_KEY,
+    cloudEnv.LICENSE_PRIVATE_KEY,
   );
 }
 
@@ -129,52 +138,64 @@ export const licenseService = {
       throw Object.assign(new Error('Üyelik süreniz dolmuş. Lütfen süre uzatın.'), { statusCode: 402 });
     }
 
-    // Ilk baglama atomiktir. Iki bilgisayar ayni anda PENDING lisansi
-    // aktive ederse yalnizca biri hardwareId:null kosulunu kazanabilir.
-    if (!license.hardwareId) {
-      const bound = await prisma.license.updateMany({
-        where: {
-          id: license.id,
-          hardwareId: null,
-          status: { in: ['PENDING', 'ACTIVE'] },
-          expiresAt: { gte: new Date() },
-        },
-        data: {
-          hardwareId: input.hardwareId,
-          hardwareIdShort: input.hardwareIdShort ?? null,
-          activatedAt: new Date(),
-          status: 'ACTIVE',
-        },
-      });
-      if (bound.count !== 1) {
-        const winner = await prisma.license.findUnique({ where: { id: license.id } });
-        if (winner?.hardwareId !== input.hardwareId) {
-          await flagSuspicious(license.id, 'es zamanli farkli donanim aktivasyonu');
-          throw Object.assign(new Error('Bu lisans başka bir bilgisayarda kullanımda.'), {
-            statusCode: 409,
-          });
-        }
-      }
-    }
-
-    const updated = await prisma.license.update({
-      where: { id: license.id },
+    // Tek ve kosullu write hem ilk cihaz yarısını hem de aynı cihazdan yeniden
+    // aktivasyonu kapsar. Superadmin tam bu arada suspend/revoke/reset/rebind
+    // yaparsa eski snapshot ile terminal durum ASLA ACTIVE'e geri yazilmaz.
+    const now = new Date();
+    const activated = await prisma.license.updateMany({
+      where: {
+        id: license.id,
+        status: { in: ['PENDING', 'ACTIVE'] },
+        expiresAt: { gte: now },
+        OR: [{ hardwareId: null }, { hardwareId: input.hardwareId }],
+      },
       data: {
         status: 'ACTIVE',
         hardwareId: input.hardwareId,
-        hardwareIdShort: input.hardwareIdShort ?? null,
-        activatedAt: license.activatedAt ?? new Date(),
-        lastHeartbeatAt: new Date(),
+        hardwareIdShort: input.hardwareIdShort ?? license.hardwareIdShort,
+        activatedAt: license.activatedAt ?? now,
+        lastHeartbeatAt: now,
         lastHeartbeatIp: input.ip ?? null,
         appVersion: input.appVersion ?? null,
       },
-      include: { tenant: { select: { name: true } } },
     });
 
-    logger.info(`Lisans aktive edildi: ${updated.key} -> ${updated.tenant.name}`);
+    const updated = await prisma.license.findUnique({
+      where: { id: license.id },
+      include: { tenant: { select: { name: true, isActive: true } } },
+    });
+
+    if (!updated) {
+      throw Object.assign(new Error('Lisans anahtarı geçersiz.'), { statusCode: 404 });
+    }
+
+    if (activated.count !== 1 || !isActivationEligible(updated, input.hardwareId, now)) {
+      if (updated.status === 'REVOKED') {
+        throw Object.assign(new Error('Bu lisans iptal edilmiş. Lütfen bizimle iletişime geçin.'), {
+          statusCode: 403,
+        });
+      }
+      if (updated.status === 'SUSPENDED') {
+        throw Object.assign(new Error('Lisansınız askıya alınmış. Lütfen bizimle iletişime geçin.'), {
+          statusCode: 403,
+        });
+      }
+      if (updated.hardwareId && updated.hardwareId !== input.hardwareId) {
+        await flagSuspicious(updated.id, 'es zamanli cihaz degisikligi veya aktivasyon denemesi');
+        throw Object.assign(new Error('Bu lisans başka bir bilgisayarda kullanımda.'), {
+          statusCode: 409,
+        });
+      }
+      if (updated.expiresAt < now) {
+        throw Object.assign(new Error('Üyelik süreniz dolmuş. Lütfen süre uzatın.'), { statusCode: 402 });
+      }
+      throw Object.assign(new Error('Lisans durumu değişti. Lütfen yeniden deneyin.'), { statusCode: 409 });
+    }
+
+    logger.info(`Lisans aktive edildi: ${updated.id} -> ${updated.tenant.name}`);
 
     return {
-      license: sign({ ...updated, hardwareId: input.hardwareId, tenantActive: true }),
+      license: sign({ ...updated, hardwareId: input.hardwareId, tenantActive: updated.tenant.isActive }),
       serverTime: new Date().toISOString(),
       heartbeatIntervalHours: HEARTBEAT_INTERVAL_HOURS,
     };
@@ -197,22 +218,47 @@ export const licenseService = {
       throw Object.assign(new Error('Lisans anahtarı geçersiz.'), { statusCode: 404 });
     }
 
-    // Baglanmis donanimdan farkli bir makine yokluyorsa: lisans dosyasi
-    // kopyalanmis olabilir. Reddet ve isaretle.
-    if (license.hardwareId && license.hardwareId !== input.hardwareId) {
+    if (!isHeartbeatEligible(license, input.hardwareId)) {
+      if (!license.hardwareId || license.status === 'PENDING') {
+        throw Object.assign(new Error('Lisans aktivasyonu gerekli.'), { statusCode: 409 });
+      }
       await flagSuspicious(license.id, 'farkli donanimdan yoklama');
       throw Object.assign(new Error('Lisans bu cihaza tanımlı değil.'), { statusCode: 409 });
     }
 
-    const updated = await prisma.license.update({
-      where: { id: license.id },
+    // Reset/rebind ile ayni anda gelen heartbeat eski snapshot'a dayanamaz:
+    // write aninda cihaz bagi ve PENDING olmama sarti tekrar kontrol edilir.
+    const touched = await prisma.license.updateMany({
+      where: {
+        id: license.id,
+        hardwareId: input.hardwareId,
+        status: { not: 'PENDING' },
+      },
       data: {
         lastHeartbeatAt: new Date(),
         lastHeartbeatIp: input.ip ?? null,
         appVersion: input.appVersion ?? license.appVersion,
       },
-      include: { tenant: { select: { name: true } } },
     });
+
+    const updated = await prisma.license.findUnique({
+      where: { id: license.id },
+      include: { tenant: { select: { name: true, isActive: true } } },
+    });
+
+    if (!updated) {
+      throw Object.assign(new Error('Lisans anahtarı geçersiz.'), { statusCode: 404 });
+    }
+    if (touched.count !== 1 || !isHeartbeatEligible(updated, input.hardwareId)) {
+      if (!updated.hardwareId || updated.status === 'PENDING') {
+        throw Object.assign(new Error('Lisans aktivasyonu gerekli.'), { statusCode: 409 });
+      }
+      if (updated.hardwareId !== input.hardwareId) {
+        await flagSuspicious(updated.id, 'yoklama sirasinda cihaz bagi degisti');
+        throw Object.assign(new Error('Lisans bu cihaza tanımlı değil.'), { statusCode: 409 });
+      }
+      throw Object.assign(new Error('Lisans durumu değişti. Lütfen yeniden deneyin.'), { statusCode: 409 });
+    }
 
     return {
       // Suspend/revoke/tenant pasif karari da imzali payload ile doner.
@@ -220,7 +266,7 @@ export const licenseService = {
       license: sign({
         ...updated,
         hardwareId: input.hardwareId,
-        tenantActive: license.tenant.isActive,
+        tenantActive: updated.tenant.isActive,
       }),
       serverTime: new Date().toISOString(),
       heartbeatIntervalHours: HEARTBEAT_INTERVAL_HOURS,

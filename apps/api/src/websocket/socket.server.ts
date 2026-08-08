@@ -6,11 +6,12 @@ import { Server as HttpServer } from 'http';
 import { Server, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { timingSafeEqual } from 'crypto';
-import { env } from '../config/env';
+import { localEnv } from '../config/env.local';
 import { logger } from '../utils/logger';
 import prisma from '../config/database';
 import { orderService } from '../modules/orders/order.service';
 import { processCreatedOrder } from '../modules/orders/order.post-create';
+import { parseOrderIdempotencyKey } from '../modules/orders/order-idempotency.policy';
 import { printService } from '../modules/printing/print.service';
 
 let io: Server;
@@ -28,10 +29,18 @@ function safeCompare(a: string, b: string): boolean {
   return timingSafeEqual(left, right);
 }
 
-export function initializeSocketServer(httpServer: HttpServer): Server {
+export interface SocketServerOptions {
+  /** Her baglanti ve gelen olayda diskteki imzali lisansi yeniden dogrular. */
+  assertOperationalLicense?: () => void;
+}
+
+export function initializeSocketServer(
+  httpServer: HttpServer,
+  options: SocketServerOptions = {},
+): Server {
   io = new Server(httpServer, {
     cors: {
-      origin: env.CORS_ORIGIN,
+      origin: localEnv.CORS_ORIGIN,
       methods: ['GET', 'POST'],
       credentials: true,
     },
@@ -41,6 +50,12 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
 
   // ─── Authentication Middleware ──────────
   io.use(async (socket: AuthenticatedSocket, next) => {
+    try {
+      options.assertOperationalLicense?.();
+    } catch {
+      return next(new Error('LOCAL_LICENSE_LOCKED'));
+    }
+
     const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.split(' ')[1];
     const agentType = socket.handshake.auth.agentType;
 
@@ -73,7 +88,7 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
         return next(new Error('Unknown tenant'));
       }
 
-      const expectedSecret = tenant.printAgentSecret || env.PRINT_AGENT_SECRET;
+      const expectedSecret = tenant.printAgentSecret || localEnv.PRINT_AGENT_SECRET;
 
       // Sabit zamanli karsilastirma: zamanlama saldirisiyla sirrin
       // tahmin edilmesini zorlastirir.
@@ -89,7 +104,7 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
 
     // Standard JWT authentication for Web Clients
     try {
-      const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET) as {
+      const decoded = jwt.verify(token, localEnv.JWT_ACCESS_SECRET) as {
         userId: string;
         tenantId: string;
         role: string;
@@ -106,6 +121,18 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
 
   // ─── Connection Handler ─────────────────
   io.on('connection', (socket: AuthenticatedSocket) => {
+    // Uzun sure acik kalan bir socket, lisans sonradan dolunca eski baglanti
+    // uzerinden mutasyon yapamaz. Socket.IO paket middleware'i her gelen olayi
+    // yeniden kapidan gecirir.
+    socket.use((_packet, next) => {
+      try {
+        options.assertOperationalLicense?.();
+        next();
+      } catch {
+        next(new Error('LOCAL_LICENSE_LOCKED'));
+      }
+    });
+
     const tenantRoom = `tenant:${socket.tenantId}`;
     socket.join(tenantRoom);
     if (socket.role === 'PRINT_AGENT') {
@@ -117,35 +144,41 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
     // ─── Order Events ───────────────────────
     socket.on('order:create', async (data: { order: any; localId?: string }) => {
       try {
-        const order = await orderService.create(
+        const idempotencyKey = parseOrderIdempotencyKey(data.localId);
+        const result = await orderService.create(
           socket.tenantId!,
           socket.userId!,
           data.order,
+          { idempotencyKey },
         );
+        const { order, isReplay } = result;
 
-        // Broadcast new order to the tenant room
-        io.to(tenantRoom).emit('order:new', { order });
-
-        await processCreatedOrder(
-          socket.tenantId!,
-          order,
-          io,
-          tenantRoom,
-          data.order?.printToKitchen !== false,
-        );
+        if (!isReplay) {
+          // A replay only acknowledges the original result. Re-broadcasting or
+          // printing here would turn an idempotent retry into a duplicate side effect.
+          io.to(tenantRoom).emit('order:new', { order });
+          await processCreatedOrder(
+            socket.tenantId!,
+            order,
+            io,
+            tenantRoom,
+            data.order?.printToKitchen !== false,
+          );
+        }
 
         // Acknowledge back to sender (with offline sync support)
         socket.emit('sync:confirmed', {
           localId: data.localId || '',
           serverId: order.id,
+          replayed: isReplay,
         });
 
         logger.info(`📋 Order ${order.orderNumber} broadcast to ${tenantRoom}`);
-      } catch (error) {
+      } catch (error: any) {
         logger.error('Order creation via socket failed:', error);
         socket.emit('error', {
-          message: 'Failed to create order',
-          code: 'ORDER_CREATE_FAILED',
+          message: error?.message || 'Failed to create order',
+          code: error?.code || 'ORDER_CREATE_FAILED',
         });
       }
     });
@@ -188,27 +221,38 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
 
       for (const offlineOrder of data.orders) {
         try {
-          const order = await orderService.create(
+          const idempotencyKey = parseOrderIdempotencyKey(offlineOrder.localId);
+          const result = await orderService.create(
             socket.tenantId!,
             socket.userId!,
             offlineOrder.payload,
+            { idempotencyKey },
           );
+          const { order, isReplay } = result;
 
           socket.emit('sync:confirmed', {
             localId: offlineOrder.localId,
             serverId: order.id,
+            replayed: isReplay,
           });
 
-          io.to(tenantRoom).emit('order:new', { order });
-          await processCreatedOrder(
-            socket.tenantId!,
-            order,
-            io,
-            tenantRoom,
-            offlineOrder.payload?.printToKitchen !== false,
-          );
-        } catch (error) {
+          if (!isReplay) {
+            io.to(tenantRoom).emit('order:new', { order });
+            await processCreatedOrder(
+              socket.tenantId!,
+              order,
+              io,
+              tenantRoom,
+              offlineOrder.payload?.printToKitchen !== false,
+            );
+          }
+        } catch (error: any) {
           logger.error(`Failed to sync offline order ${offlineOrder.localId}:`, error);
+          socket.emit('sync:failed', {
+            localId: offlineOrder.localId || '',
+            message: error?.message || 'Failed to sync offline order',
+            code: error?.code || 'ORDER_SYNC_FAILED',
+          });
         }
       }
     });

@@ -6,7 +6,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { createHash, randomBytes } from 'crypto';
 import prisma from '../../config/database';
-import { env } from '../../config/env';
+import { sharedEnv } from '../../config/env.shared';
 import { LoginInput, PinLoginInput, RegisterInput } from './auth.validation';
 import { logger } from '../../utils/logger';
 
@@ -49,8 +49,8 @@ async function issueTokens(
   payload: { userId: string; tenantId?: string | null; role: string },
   context?: SessionContext,
 ) {
-  const accessToken = jwt.sign(payload, env.JWT_ACCESS_SECRET, {
-    expiresIn: env.JWT_ACCESS_EXPIRY as any,
+  const accessToken = jwt.sign(payload, sharedEnv.JWT_ACCESS_SECRET, {
+    expiresIn: sharedEnv.JWT_ACCESS_EXPIRY as any,
   });
 
   // jti (rastgele token kimligi) SART: JWT'nin 'iat' alani saniye
@@ -60,8 +60,8 @@ async function issueTokens(
   // bu gercekten yasaniyor. jti her token'i benzersiz kilar.
   const refreshToken = jwt.sign(
     { ...payload, jti: randomBytes(16).toString('hex') },
-    env.JWT_REFRESH_SECRET,
-    { expiresIn: env.JWT_REFRESH_EXPIRY as any },
+    sharedEnv.JWT_REFRESH_SECRET,
+    { expiresIn: sharedEnv.JWT_REFRESH_EXPIRY as any },
   );
 
   // Bitis tarihini token'in kendi 'exp' alanindan aliyoruz ki DB kaydi ile
@@ -120,12 +120,9 @@ export const authService = {
       if (!user.tenant.isActive) {
         throw Object.assign(new Error('Bu restoran hesabı aktif değil.'), { statusCode: 403 });
       }
-      // subscriptionExpiresAt null ise sure hic ayarlanmamis demektir —
-      // kontrol devre disi kalir (mevcut musterileri kilitlememek icin
-      // bilincli varsayilan, bkz. schema.prisma).
-      if (user.tenant.subscriptionExpiresAt && user.tenant.subscriptionExpiresAt < new Date()) {
-        throw Object.assign(new Error('Üyelik süreniz dolmuş. Lütfen yönetimle iletişime geçin.'), { statusCode: 403 });
-      }
+      // Abonelik/lisans suresinin tek karar noktasi local license gate'tir.
+      // Legacy subscriptionExpiresAt burada uygulanmaz; iki farkli tarih
+      // gecerli lisansi yanlislikla kilitleyemez.
     }
 
     let isPasswordValid = await bcrypt.compare(input.password, user.passwordHash);
@@ -217,7 +214,7 @@ export const authService = {
         // Only allow bcrypt-hashed PINs in production
         const isMatch = u.pin.startsWith('$2')
           ? await bcrypt.compare(input.pin, u.pin)
-          : (env.isDev ? u.pin === input.pin : false);
+          : (sharedEnv.isDev ? u.pin === input.pin : false);
         if (isMatch) { matchedUser = u; break; }
       }
     }
@@ -276,7 +273,7 @@ export const authService = {
     }
 
     // Hash password
-    const passwordHash = await bcrypt.hash(input.password, env.BCRYPT_SALT_ROUNDS);
+    const passwordHash = await bcrypt.hash(input.password, sharedEnv.BCRYPT_SALT_ROUNDS);
 
     // Hash PIN if provided
     const hashedPin = input.pin ? await bcrypt.hash(input.pin, 10) : undefined;
@@ -315,7 +312,7 @@ export const authService = {
    */
   async refreshToken(refreshToken: string, context?: SessionContext) {
     try {
-      const decoded = jwt.verify(refreshToken, env.JWT_REFRESH_SECRET) as {
+      const decoded = jwt.verify(refreshToken, sharedEnv.JWT_REFRESH_SECRET) as {
         userId: string;
         tenantId: string;
         role: string;
@@ -358,7 +355,7 @@ export const authService = {
 
       // Verify user still exists and is active
       // GUVENLIK: eskiden sadece User.isActive kontrol ediliyordu — bir
-      // restoran pasife alinsa (veya uyeligi dolsa) bile zaten girisi
+      // restoran pasife alinsa bile zaten girisi
       // acik kullanicilar token yenileyerek sinirsiz erisebiliyordu.
       // Artik login()'deki ile ayni tenant kontrolu burada da yapiliyor.
       const user = await prisma.user.findFirst({
@@ -373,9 +370,6 @@ export const authService = {
       if (user.role !== 'SUPER_ADMIN' && user.tenant) {
         if (!user.tenant.isActive) {
           throw Object.assign(new Error('Bu restoran hesabı aktif değil.'), { statusCode: 403 });
-        }
-        if (user.tenant.subscriptionExpiresAt && user.tenant.subscriptionExpiresAt < new Date()) {
-          throw Object.assign(new Error('Üyelik süreniz dolmuş. Lütfen yönetimle iletişime geçin.'), { statusCode: 403 });
         }
       }
 
@@ -518,7 +512,7 @@ export const authService = {
         // Only allow bcrypt-hashed PINs in production
         const isMatch = u.pin.startsWith('$2')
           ? await bcrypt.compare(pin, u.pin)
-          : (env.isDev ? u.pin === pin : false);
+          : (sharedEnv.isDev ? u.pin === pin : false);
         if (isMatch) { matchedUser = u; break; }
       }
     }
@@ -547,7 +541,7 @@ export const authService = {
       throw Object.assign(new Error('Mevcut şifre hatalı.'), { statusCode: 400 });
     }
 
-    const passwordHash = await bcrypt.hash(newPassword, env.BCRYPT_SALT_ROUNDS);
+    const passwordHash = await bcrypt.hash(newPassword, sharedEnv.BCRYPT_SALT_ROUNDS);
 
     await prisma.user.update({
       where: { id: userId },
@@ -573,7 +567,7 @@ export const authService = {
       throw Object.assign(new Error(`Belirtilen rolde (${targetRole}) kullanıcı bulunamadı.`), { statusCode: 404 });
     }
 
-    const passwordHash = await bcrypt.hash(newPassword, env.BCRYPT_SALT_ROUNDS);
+    const passwordHash = await bcrypt.hash(newPassword, sharedEnv.BCRYPT_SALT_ROUNDS);
 
     // Update all users with that role in the tenant
     await prisma.user.updateMany({

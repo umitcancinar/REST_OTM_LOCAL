@@ -3,12 +3,14 @@
 // ==========================================
 
 import { Response, NextFunction } from 'express';
+import { ZodError } from 'zod';
 import { AuthenticatedRequest } from '../../middlewares/auth.middleware';
 import { getTenantId } from '../../middlewares/tenant.middleware';
 import { orderService } from './order.service';
 import { processCreatedOrder } from './order.post-create';
 import { apiResponse, apiError } from '../../utils/apiResponse';
 import { createOrderSchema, updateOrderStatusSchema, updateItemStatusSchema, transferTableSchema, updateItemQuantitySchema } from './order.validation';
+import { resolveHttpOrderIdempotencyKey } from './order-idempotency.policy';
 
 export const orderController = {
   async getAll(req: AuthenticatedRequest, res: Response, next: NextFunction) {
@@ -50,24 +52,43 @@ export const orderController = {
     try {
       const tenantId = getTenantId(req);
       const validatedData = createOrderSchema.parse(req.body);
-      const order = await orderService.create(tenantId, req.user!.userId, validatedData as any);
-      
-      const { getIO } = require('../../websocket/socket.server');
-      const io = getIO();
-      io.to(`tenant:${tenantId}`).emit('order:new', order);
-      io.to(`tenant:${tenantId}`).emit('table:status_changed', { tableId: order.tableId });
-      await processCreatedOrder(
-        tenantId,
-        order,
-        io,
-        `tenant:${tenantId}`,
-        validatedData.printToKitchen,
+      const idempotencyKey = resolveHttpOrderIdempotencyKey(
+        req.get('Idempotency-Key'),
+        validatedData.clientCommandId,
       );
+      const { clientCommandId: _clientCommandId, ...orderInput } = validatedData;
+      const result = await orderService.create(
+        tenantId,
+        req.user!.userId,
+        orderInput,
+        { idempotencyKey },
+      );
+      const { order, isReplay } = result;
 
-      apiResponse({ res, statusCode: 201, data: order, message: 'Order created' });
+      if (!isReplay) {
+        const { getIO } = require('../../websocket/socket.server');
+        const io = getIO();
+        io.to(`tenant:${tenantId}`).emit('order:new', order);
+        io.to(`tenant:${tenantId}`).emit('table:status_changed', { tableId: order.tableId });
+        await processCreatedOrder(
+          tenantId,
+          order,
+          io,
+          `tenant:${tenantId}`,
+          validatedData.printToKitchen,
+        );
+      }
+
+      if (idempotencyKey) res.setHeader('Idempotency-Replayed', String(isReplay));
+      apiResponse({
+        res,
+        statusCode: isReplay ? 200 : 201,
+        data: order,
+        message: isReplay ? 'Order replayed' : 'Order created',
+      });
     } catch (error: any) { 
       const message = error.message || 'Sipariş oluşturulamadı';
-      apiError(res, error.statusCode || 500, message);
+      apiError(res, error instanceof ZodError ? 400 : (error.statusCode || 500), message);
     }
   },
 

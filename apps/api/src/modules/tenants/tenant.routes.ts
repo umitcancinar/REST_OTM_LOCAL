@@ -17,8 +17,7 @@ router.use(tenantMiddleware);
 router.get('/', rbac('SUPER_ADMIN'), tenantController.getAll);
 router.post('/', rbac('SUPER_ADMIN'), tenantController.create);
 router.delete('/:id', rbac('SUPER_ADMIN'), tenantController.delete);
-// Uyelik suresi: yalniz SUPER_ADMIN — OWNER/ADMIN kendi suresini uzatamaz.
-router.patch('/:id/subscription', rbac('SUPER_ADMIN'), tenantController.extendSubscription);
+// Lisans suresi yalniz /api/license-admin uzerinden yonetilir.
 
 // Owners and Super Admins can manage a single tenant
 router.get('/:id', rbac('SUPER_ADMIN', 'OWNER', 'ADMIN'), tenantController.getById);

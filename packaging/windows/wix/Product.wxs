@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:firewall="http://wixtoolset.org/schemas/v4/wxs/firewall"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="RESTOTM Runtime"
+           Manufacturer="RESTOTM"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="9E61E97E-16D1-4D6E-AD6E-31EC6E57B891"
+           Scope="perMachine"
+           InstallerVersion="500">
+    <SummaryInformation Description="RESTOTM local-first restaurant runtime" />
+    <MajorUpgrade DowngradeErrorMessage="Daha yeni bir RESTOTM surumu zaten kurulu." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="RESTOTM">
+        <Directory Id="BINFOLDER" Name="bin" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="RESTOTMDATAROOT" Name="RESTOTM" />
+    </StandardDirectory>
+
+    <Component Id="RuntimeServiceComponent" Directory="BINFOLDER" Guid="*" Bitness="always64">
+      <File Id="RuntimeServiceExe"
+            Source="$(var.PayloadDir)\bin\restotm-runtime-service.exe"
+            KeyPath="yes"
+            Vital="yes">
+        <firewall:FirewallException Id="RestOtmLanGatewayFirewall"
+                                    Name="RESTOTM LAN Gateway (Private LocalSubnet)"
+                                    Description="RESTOTM garson terminallerinin ayni yerel agdan erisimi"
+                                    Grouping="RESTOTM"
+                                    Profile="private"
+                                    Scope="localSubnet"
+                                    Protocol="tcp"
+                                    Port="8787"
+                                    IgnoreFailure="no" />
+      </File>
+      <ServiceInstall Id="RuntimeServiceInstall"
+                      Name="RESTOTMRuntime"
+                      DisplayName="RESTOTM Runtime Service"
+                      Description="RESTOTM local API, UI, PostgreSQL, print, license, backup and LAN gateway supervisor"
+                      Type="ownProcess"
+                      Start="auto"
+                      ErrorControl="normal"
+                      Arguments="service --config &quot;[RESTOTMDATAROOT]config\runtime.json&quot;"
+                      Vital="yes">
+        <ServiceConfig DelayedAutoStart="yes"
+                       FailureActionsWhen="failedToStopOrReturnedError"
+                       OnInstall="yes"
+                       OnReinstall="yes"
+                       ServiceSid="restricted" />
+        <util:ServiceConfig FirstFailureActionType="restart"
+                            SecondFailureActionType="restart"
+                            ThirdFailureActionType="restart"
+                            RestartServiceDelayInSeconds="15"
+                            ResetPeriodInDays="1" />
+      </ServiceInstall>
+      <ServiceControl Id="RuntimeServiceControl"
+                      Name="RESTOTMRuntime"
+                      Start="install"
+                      Stop="both"
+                      Remove="uninstall"
+                      Wait="yes" />
+    </Component>
+
+    <Component Id="InstallerBootstrapComponent" Directory="BINFOLDER" Guid="*" Bitness="always64">
+      <File Id="InstallerBootstrapExe"
+            Source="$(var.PayloadDir)\bin\restotm-installer-bootstrap.exe"
+            KeyPath="yes"
+            Vital="yes" />
+    </Component>
+
+    <Component Id="ProgramDataMarkerComponent"
+               Directory="RESTOTMDATAROOT"
+               Guid="*"
+               Bitness="always64"
+               Permanent="yes"
+               NeverOverwrite="yes">
+      <CreateFolder />
+      <RegistryValue Root="HKLM"
+                     Key="Software\RESTOTM\Runtime"
+                     Name="DataRoot"
+                     Value="[RESTOTMDATAROOT]"
+                     Type="string"
+                     KeyPath="yes" />
+    </Component>
+
+    <ComponentGroup Id="RuntimePayload" Directory="INSTALLFOLDER">
+      <Files Include="$(var.PayloadDir)\**">
+        <Exclude Files="$(var.PayloadDir)\bin\restotm-runtime-service.exe" />
+        <Exclude Files="$(var.PayloadDir)\bin\restotm-installer-bootstrap.exe" />
+        <Exclude Files="$(var.PayloadDir)\**\*.pdb" />
+        <Exclude Files="$(var.PayloadDir)\**\*.map" />
+        <Exclude Files="$(var.PayloadDir)\**\.env*" />
+      </Files>
+    </ComponentGroup>
+
+    <CustomAction Id="ProvisionRestOtmHost"
+                  FileRef="InstallerBootstrapExe"
+                  ExeCommand="provision --install-root &quot;[INSTALLFOLDER]&quot; --program-data-root &quot;[RESTOTMDATAROOT]&quot; --license-server-url &quot;$(var.LicenseServerUrl)&quot; --postgres-port 55432 --api-port 4100 --admin-port 3100 --waiter-port 3200 --print-port 4300 --gateway-port 8787"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"
+                  HideTarget="yes" />
+    <InstallExecuteSequence>
+      <Custom Action="ProvisionRestOtmHost"
+              After="InstallServices"
+              Condition="NOT Installed OR REINSTALL" />
+    </InstallExecuteSequence>
+
+    <Feature Id="Complete" Title="RESTOTM Runtime" Level="1">
+      <ComponentRef Id="RuntimeServiceComponent" />
+      <ComponentRef Id="InstallerBootstrapComponent" />
+      <ComponentRef Id="ProgramDataMarkerComponent" />
+      <ComponentGroupRef Id="RuntimePayload" />
+    </Feature>
+  </Package>
+</Wix>

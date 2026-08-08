@@ -1,7 +1,5 @@
 import { Router } from 'express';
-import { publicController } from './public.controller';
-import { authMiddleware } from '../../middlewares/auth.middleware';
-import { rbac } from '../../middlewares/rbac.middleware';
+import { publicCloudController as publicController } from './public-cloud.controller';
 
 const router = Router();
 
@@ -9,15 +7,6 @@ const router = Router();
  * ─── GENERAL TENANT INFO ───────────────────────────
  */
 router.get('/tenant', publicController.getTenantInfo);
-
-// GUVENLIK: Once kimlik dogrulamasi olmadan TUM kiracilarin masalarini
-// tek istekte degistirebiliyordu. Artik SUPER_ADMIN + POST + tek tenantId
-// zorunlu. Bkz. raporlar/02_GUVENLIK_RAPORU.md madde G-01 (kritik).
-router.post('/fix-tables', authMiddleware, rbac('SUPER_ADMIN'), publicController.fixTables);
-
-// Musteri menu uygulamasindan garson cagirma (kimlik dogrulama gerekmez,
-// masanin tenant'a ait oldugu controller icinde dogrulanir).
-router.post('/waiter/call/:slug', publicController.callWaiter);
 
 /**
  * ─── MENU ──────────────────────────────────────────

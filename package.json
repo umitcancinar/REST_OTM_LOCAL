@@ -2,7 +2,7 @@
   "name": "rest-otm",
   "version": "1.0.0",
   "private": true,
-  "description": "Multi-Tenant Restaurant SaaS Platform — POS & ERP",
+  "description": "Local-first restaurant POS & ERP with a cloud license control plane",
   "scripts": {
     "dev": "npx -y concurrently -n API,ADMIN,WAITER,MENU,SUPER -c blue,green,magenta,yellow,cyan \"pnpm --filter @rest-otm/api dev\" \"pnpm --filter @rest-otm/admin dev\" \"pnpm --filter @rest-otm/waiter dev\" \"pnpm --filter @rest-otm/menu dev\" \"pnpm --filter @rest-otm/superadmin dev\"",
     "dev:api": "pnpm --filter @rest-otm/api dev",
@@ -11,7 +11,13 @@
     "dev:menu": "pnpm --filter @rest-otm/menu dev",
     "dev:superadmin": "pnpm --filter @rest-otm/superadmin dev",
     "build": "pnpm --filter @rest-otm/receipt-core build && pnpm --filter @rest-otm/license build && pnpm --filter @rest-otm/api build && pnpm --filter @rest-otm/print-agent build && pnpm --filter @rest-otm/admin build && pnpm --filter @rest-otm/waiter build && pnpm --filter @rest-otm/menu build && pnpm --filter @rest-otm/superadmin build",
-    "test": "pnpm --filter @rest-otm/license test && pnpm --filter @rest-otm/api test && pnpm --filter @rest-otm/print-agent test",
+    "test": "pnpm --filter @rest-otm/license test && pnpm --filter @rest-otm/api test && pnpm --filter @rest-otm/print-agent test && pnpm run test:release && pnpm run test:windows",
+    "test:release": "node --test scripts/release/*.test.mjs",
+    "test:windows": "node --test packaging/windows/tests/*.test.mjs",
+    "release:build:api": "pnpm --filter @rest-otm/receipt-core build && pnpm --filter @rest-otm/license build && pnpm --filter @rest-otm/api build && pnpm run release:stage:api",
+    "release:stage:api": "node scripts/release/stage-api-artifacts.mjs --profile all --dist apps/api/dist --out build/stage",
+    "release:audit:local": "node scripts/release/audit-artifact.mjs --profile local --root build/stage/local",
+    "release:audit:cloud": "node scripts/release/audit-artifact.mjs --profile cloud --root build/stage/cloud",
     "lint": "pnpm -r run lint",
     "typecheck": "pnpm -r run typecheck",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
@@ -34,11 +40,11 @@
   "author": "REST_OTM Team",
   "license": "UNLICENSED",
   "engines": {
-    "node": ">=18.0.0",
-    "pnpm": ">=8.0.0"
+    "node": ">=22.0.0",
+    "pnpm": ">=9.0.0 <10"
   },
   "packageManager": "pnpm@9.15.0",
   "devDependencies": {
-    "pnpm": "^10.33.0"
+    "pnpm": "9.15.0"
   }
 }

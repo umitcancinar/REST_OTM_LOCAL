@@ -1,38 +1,40 @@
-# 🍽️ REST_OTM — Multi-Tenant Restaurant SaaS Platform
+# 🍽️ REST_OTM — Yerel-Öncelikli Restoran POS & ERP
 
-Modern, bulut tabanlı, çok kiracılı (Multi-Tenant) Restoran POS & ERP platformu.
+Restoranın operasyonel verisini kendi bilgisayarında tutan; patron, kasa, mutfak ve garson cihazlarını aynı yerel ağda çalıştıran restoran otomasyon platformu. Bulut tarafı yalnızca lisans yönetimi, aktivasyon/yoklama ve ortak/public menü servislerini barındırır.
 
 ## 🏗️ Mimari
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                     REST_OTM Monorepo                    │
+│                  Müşteri Bilgisayarı                    │
 ├──────────────┬──────────────┬────────────┬───────────────┤
 │   Admin      │  Garson PWA  │  Backend   │  Print Agent  │
-│   Dashboard  │  (Offline)   │  API + WS  │  (Local)      │
+│   Dashboard  │  (LAN/PWA)   │  API + WS  │  (Local)      │
 │   Next.js    │  Next.js PWA │  Express   │  Node.js      │
 │   :3000      │  :3001       │  :4000     │  WebSocket    │
 └──────────────┴──────────────┴─────┬──────┴───────────────┘
                                     │
                     ┌───────────────┼───────────────┐
                     │               │               │
-                PostgreSQL      Redis          Socket.io
-                  (RLS)        (Cache)        (Realtime)
+              PostgreSQL      Lisans Guard     Socket.io
+             (127.0.0.1)      (signed lease)  (Realtime)
 ```
+
+Yerel ağa yalnızca uygulama geçidi açılır; PostgreSQL ve iç servisler loopback arayüzünde kalır. Garson cihazları kurulum ekranında gösterilen yerel IP/QR adresinden bağlanır. Saatlik lisans yoklaması başarısız olsa bile imzalı çevrimdış süre dolana kadar operasyon sürer.
 
 ## 🚀 Hızlı Başlangıç
 
 ### Ön Koşullar
 
-- **Node.js** v18+ 
-- **pnpm** v8+ (`npm install -g pnpm`)
-- **Docker Desktop** (PostgreSQL & Redis için)
+- **Node.js** v22+
+- **pnpm** v9 (`corepack enable`)
+- **Docker Desktop** (yalnızca geliştirme PostgreSQL ortamı için)
 
 ### 1. Projeyi Klonla
 
 ```bash
 git clone <repo-url>
-cd REST_OTM
+cd REST_OTM_LOCAL
 ```
 
 ### 2. Ortam Değişkenlerini Ayarla
@@ -42,7 +44,7 @@ cp .env.example .env
 # .env dosyasını düzenleyip gerçek değerleri gir
 ```
 
-### 3. Veritabanını Başlat (Docker)
+### 3. Geliştirme Veritabanını Başlat
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d
@@ -68,21 +70,17 @@ pnpm db:seed
 pnpm dev
 ```
 
-Bu komut tüm uygulamaları paralel olarak başlatacaktır:
+Bu komut geliştirme profilinde tüm uygulamaları paralel olarak başlatır:
 - **Admin Dashboard:** http://localhost:3000
 - **Garson PWA:** http://localhost:3001
 - **Backend API:** http://localhost:4000
 - **API Health:** http://localhost:4000/api/health
 
-## 📋 Demo Giriş Bilgileri
-
-| Rol | Email | Şifre | PIN |
-|---|---|---|---|
-| Patron (Owner) | patron@lezzet.com | ! | — |
-| Şef (Chef) | sef@lezzet.com | Admin123! | — |
-| Kasiyer (Cashier) | kasa@lezzet.com | ! | — |
-| Garson 1 | garson1@lezzet.com | Garson123! |  |
-| Garson 2 | garson2@lezzet.com | Garson123! |  |
+> Bu depo henüz son kullanıcı kurulum paketi değildir. API cloud/local artifact
+> ayrımı, lisans kapısı ve PostgreSQL yedek runtime'ı hazırdır; imzalı Windows
+> supervisor/kurucu, paketlenmiş PostgreSQL, yerel ağ geçidi, geri yükleme testi
+> ve imzalı güncelleme tamamlanmadan müşteriye kurulamaz. Güncel durum için
+> `raporlar/06_NELER_YAPTIM_NELER_YAPACAGIM.md` dosyasına bakın.
 
 ## 📁 Proje Yapısı
 
@@ -91,25 +89,30 @@ REST_OTM/
 ├── apps/
 │   ├── api/            # Backend API + WebSocket (Express + Prisma)
 │   ├── admin/          # Admin Dashboard (Next.js)
-│   ├── waiter/         # Garson PWA (Next.js + PWA)
+│   ├── waiter/         # LAN üzerinden Garson PWA (Next.js)
 │   └── print-agent/    # Local Print Agent (Node.js)
 ├── packages/
 │   ├── shared-types/   # Ortak TypeScript tipleri
+│   ├── license/        # İmzalı lisans protokolü ve istemci
 │   ├── ui-kit/         # Paylaşılan UI bileşenleri
 │   └── eslint-config/  # Paylaşılan ESLint kuralları
-├── docker/             # Docker Compose konfigürasyonları
-└── docs/               # Proje dokümantasyonu
+├── docker/             # Yalnızca geliştirme bađımlılıkları
+├── raporlar/            # Mimari, güvenlik ve ilerleme kayıtları
+└── render.yaml         # Bulut profilinin dađıtım tanımı
 ```
 
 ## 🔒 Güvenlik
 
 - ✅ Parolalar **bcrypt** ile hashlenmiş (salt: 12)
 - ✅ JWT Access + Refresh token stratejisi
-- ✅ PostgreSQL **Row-Level Security** ile tenant izolasyonu
+- ✅ Uygulama katmanında tenant kapsam kontrolü
 - ✅ **Rate limiting** ile brute-force koruması
 - ✅ **Helmet** ile HTTP güvenlik başlıkları
 - ✅ **Zod** ile tüm girdiler doğrulanmış
 - ✅ `.env` dosyası Git'ten hariç tutulmuş
+- ✅ Ed25519 imzalı lisans ve çevrimdış süre sınırı
+
+PostgreSQL RLS, Windows servis izolasyonu, Authenticode, TPM/DPAPI cihaz anahtarı ve imzalı güncelleme henüz tamamlanmadığı için güvenlik listesindeki hedefler tamamlanmış gibi kabul edilmemelidir.
 
 ## 🛠️ Kullanışlı Komutlar
 

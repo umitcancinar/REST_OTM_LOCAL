@@ -6,6 +6,8 @@
     "dev": "ts-node-dev --respawn --transpile-only --exit-child src/app.ts",
     "build": "prisma generate && tsc",
     "start": "prisma migrate deploy && node dist/app.js",
+    "start:cloud": "prisma migrate deploy && node dist/cloud.js",
+    "start:local": "prisma migrate deploy && node dist/local.js",
     "lint": "eslint src/",
     "test": "tsc && node --test test/*.test.js",
     "typecheck": "tsc --noEmit"

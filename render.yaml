@@ -5,16 +5,20 @@ services:
     env: node
     # Always compile the API on Render. Running a checked-in dist/ directory
     # without this step can silently deploy stale printing/layout behavior.
-    buildCommand: npm install -g pnpm && pnpm install --prod=false --no-frozen-lockfile && pnpm --filter @rest-otm/receipt-core build && pnpm --filter @rest-otm/api build
-    startCommand: cd apps/api && pnpm run start
+    buildCommand: npm install -g pnpm && pnpm install --prod=false --no-frozen-lockfile && pnpm --filter @rest-otm/receipt-core build && pnpm --filter @rest-otm/license build && pnpm --filter @rest-otm/api build
+    startCommand: cd apps/api && pnpm run start:cloud
     envVars:
       - key: NODE_ENV
         value: production
+      - key: RUNTIME_MODE
+        value: cloud
       - key: PORT
         value: 10000
       - key: DATABASE_URL
         sync: false
-      # DIKKAT: Bu isimler apps/api/src/config/env.ts icinde okunan isimlerle
+      - key: LICENSE_PRIVATE_KEY
+        sync: false
+      # DIKKAT: Bu isimler env.shared.ts/env.cloud.ts icinde okunan isimlerle
       # birebir ayni olmak zorunda. Daha once burada JWT_SECRET / ADMIN_SECRET
       # yaziyordu; kod ise JWT_ACCESS_SECRET / JWT_REFRESH_SECRET okuyordu.
       # Isimler tutmadigi icin API, kaynak kodda yazili varsayilan sirla
@@ -22,8 +26,6 @@ services:
       - key: JWT_ACCESS_SECRET
         sync: false
       - key: JWT_REFRESH_SECRET
-        sync: false
-      - key: PRINT_AGENT_SECRET
         sync: false
       # Panel ve garson paneli adresleri, virgulle ayrilmis.
       - key: CORS_ORIGIN

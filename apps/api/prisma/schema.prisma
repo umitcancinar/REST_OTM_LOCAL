@@ -42,6 +42,8 @@ model Tenant {
   menuItems      MenuItem[]
   tables         RestaurantTable[]
   orders         Order[]
+  orderCounters  OrderCounter[]
+  orderCommands  OrderCommand[]
   inventoryItems InventoryItem[]
   recipes        Recipe[]
   wasteLogs      WasteLog[]
@@ -111,7 +113,7 @@ enum LicenseStatus {
 model License {
   id       String        @id @default(cuid())
   tenantId String
-  /** Musteriye verilen anahtar: RSTO-XXXX-XXXX-XXXX */
+  /** Musteriye verilen anahtar: RSTO-XXXX-XXXX-XXXX-XXXX */
   key      String        @unique
   status   LicenseStatus @default(PENDING)
 
@@ -147,12 +149,41 @@ model License {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  auditLogs LicenseAuditLog[]
 
   @@index([tenantId])
   @@index([status])
   @@index([lastHeartbeatAt])
   @@map("licenses")
+}
+
+/** Superadmin lisans islemlerinin degistirilemez olay gunlugu.
+ *  Her kayit ilgili lisans degisikligiyle AYNI transaction'da yazilir. */
+enum LicenseAuditAction {
+  CREATED
+  UPDATED
+  EXTENDED
+  SUSPENDED
+  RESUMED
+  REVOKED
+  ACTIVATION_RESET
+  REBOUND
+}
+
+model LicenseAuditLog {
+  id         String             @id @default(cuid())
+  licenseId  String
+  operatorId String
+  action     LicenseAuditAction
+  metadata   Json               @default("{}")
+  timestamp  DateTime           @default(now())
+
+  license License @relation(fields: [licenseId], references: [id], onDelete: Restrict)
+
+  @@index([licenseId, timestamp])
+  @@index([operatorId, timestamp])
+  @@map("license_audit_logs")
 }
 
 // ─── REFRESH TOKEN / OTURUM ────────────────────────
@@ -379,13 +410,55 @@ model Order {
   customer  Customer?          @relation(fields: [customerId], references: [id])
   waiter    User?              @relation("WaiterOrders", fields: [waiterId], references: [id])
   subChecks SubCheck[]
+  idempotencyCommands OrderCommand[]
 
   @@index([tenantId])
   @@index([tableId])
   @@index([customerId])
   @@index([waiterId])
   @@index([tenantId, createdAt])
+  @@unique([tenantId, orderNumber])
   @@map("orders")
+}
+
+/**
+ * Transactional sequence for human-facing order numbers. A business day is
+ * currently the UTC calendar day; see order-number.policy.ts. Keeping the day
+ * in the counter scope lets each tenant restart at 1 without sharing locks.
+ */
+model OrderCounter {
+  tenantId     String
+  businessDate DateTime @db.Date
+  value        Int      @default(0)
+  updatedAt    DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, businessDate])
+  @@map("order_counters")
+}
+
+/**
+ * A durable receipt for every client order-create command. This is separate
+ * from Order because a command may append items to an already open table order.
+ * The tenant-scoped unique key is the final defence against concurrent retries.
+ */
+model OrderCommand {
+  id             String   @id @default(cuid())
+  tenantId       String
+  idempotencyKey String   @db.VarChar(128)
+  payloadHash    String   @db.Char(64)
+  orderId        String?
+  createdItemIds String[] @default([])
+  createdAt      DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order  Order? @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([orderId])
+  @@index([tenantId, createdAt])
+  @@map("order_commands")
 }
 
 model SubCheck {

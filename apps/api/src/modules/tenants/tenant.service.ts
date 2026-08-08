@@ -6,7 +6,7 @@ import prisma from '../../config/database';
 import { logger } from '../../utils/logger';
 import bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
-import { env } from '../../config/env';
+import { sharedEnv } from '../../config/env.shared';
 import { addMonthsToExpiry } from '../../utils/subscription';
 
 export const tenantService = {
@@ -50,7 +50,7 @@ export const tenantService = {
       const tenant = await tx.tenant.create({ data: { ...tenantData, printAgentSecret } });
       
       if (adminEmail && adminPassword) {
-        const passwordHash = await bcrypt.hash(adminPassword, env.BCRYPT_SALT_ROUNDS);
+        const passwordHash = await bcrypt.hash(adminPassword, sharedEnv.BCRYPT_SALT_ROUNDS);
         await tx.user.create({
           data: {
             tenantId: tenant.id,
@@ -103,7 +103,12 @@ export const tenantService = {
   },
 
   async delete(id: string) {
-    return prisma.tenant.delete({ where: { id } });
+    // Restoran ve finansal/audit gecmisi fiziksel olarak silinmez. Devre disi
+    // tenant, bir sonraki imzali yoklamada tenant_disabled entitlement alir.
+    return prisma.tenant.update({
+      where: { id },
+      data: { isActive: false },
+    });
   },
 
   /**

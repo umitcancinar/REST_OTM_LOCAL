@@ -1,4 +1,45 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+// Uretim local paketinde admin + API tek LAN gateway/origin altindadir.
+// Mutlak localhost adresi telefonda kullanicinin kendi cihazina gider.
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
+const ORDER_COMMAND_STORAGE_KEY = 'restotm:pending-order-command';
+
+async function orderCommandBody(endpoint: string, body: any): Promise<any> {
+  if (endpoint !== '/orders' || body?.clientCommandId || typeof window === 'undefined') return body;
+  const serialized = JSON.stringify(body);
+  let fingerprint = serialized;
+  if (globalThis.crypto?.subtle) {
+    const digest = await globalThis.crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode(serialized),
+    );
+    fingerprint = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  }
+
+  let pending: { fingerprint: string; id: string } | null = null;
+  try {
+    pending = JSON.parse(sessionStorage.getItem(ORDER_COMMAND_STORAGE_KEY) || 'null');
+  } catch {
+    sessionStorage.removeItem(ORDER_COMMAND_STORAGE_KEY);
+  }
+  if (!pending || pending.fingerprint !== fingerprint) {
+    const id = globalThis.crypto?.randomUUID?.()
+      ?? `order-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    pending = { fingerprint, id };
+    sessionStorage.setItem(ORDER_COMMAND_STORAGE_KEY, JSON.stringify(pending));
+  }
+  return { ...body, clientCommandId: pending.id };
+}
+
+function redirectOnLicenseLock(response: Response): boolean {
+  if (response.status !== 423 || typeof window === 'undefined') return false;
+
+  // Aktivasyon ekrani API yardimcisini kullanmaz; yine de bu kontrol,
+  // ileride kullanmasi halinde kendi kendine yonlendirme dongusunu engeller.
+  if (window.location.pathname !== '/activate') {
+    window.location.replace('/activate');
+  }
+  return true;
+}
 
 async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
@@ -15,6 +56,10 @@ async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {
     ...options,
     headers,
   });
+
+  if (redirectOnLicenseLock(response)) {
+    throw new Error('Yerel lisans doğrulaması gerekiyor.');
+  }
 
   if (response.status === 401 && typeof window !== 'undefined') {
     const refreshToken = localStorage.getItem('refreshToken');
@@ -43,6 +88,10 @@ async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {
             ...options,
             headers: retryHeaders,
           });
+
+          if (redirectOnLicenseLock(retryRes)) {
+            throw new Error('Yerel lisans doğrulaması gerekiyor.');
+          }
           
           if (!retryRes.ok) throw new Error('Retry failed');
           const retryData = await retryRes.json();
@@ -73,7 +122,14 @@ async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {
 
 export const api = {
   get: (endpoint: string) => fetchWithAuth(endpoint),
-  post: (endpoint: string, body: any) => fetchWithAuth(endpoint, { method: 'POST', body: JSON.stringify(body) }),
+  post: async (endpoint: string, body: any) => {
+    const commandBody = await orderCommandBody(endpoint, body);
+    const result = await fetchWithAuth(endpoint, { method: 'POST', body: JSON.stringify(commandBody) });
+    if (endpoint === '/orders' && typeof window !== 'undefined') {
+      sessionStorage.removeItem(ORDER_COMMAND_STORAGE_KEY);
+    }
+    return result;
+  },
   patch: (endpoint: string, body: any) => fetchWithAuth(endpoint, { method: 'PATCH', body: JSON.stringify(body) }),
   delete: (endpoint: string) => fetchWithAuth(endpoint, { method: 'DELETE' }),
 };

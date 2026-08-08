@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { orderIdempotencyKeySchema } from './order-idempotency.policy';
 
 export const orderItemSchema = z.object({
   menuItemId: z.string().min(1, 'Menu item ID is required'),
@@ -18,6 +19,7 @@ export const subCheckSchema = z.object({
 });
 
 export const createOrderSchema = z.object({
+  clientCommandId: orderIdempotencyKeySchema.optional(),
   type: z.enum(['DINE_IN', 'TAKEAWAY', 'DELIVERY']).default('DINE_IN'),
   printToKitchen: z.boolean().optional().default(false),
   tableId: z.string().optional(),

@@ -1,0 +1,7 @@
+{
+  "name": "@rest-otm/windows-packaging",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/windows-packaging.static.test.mjs"
+  }
+}

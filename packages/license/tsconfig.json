@@ -4,6 +4,8 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false,
     "module": "CommonJS",
     "moduleResolution": "Node",
     "lib": ["ES2022"],

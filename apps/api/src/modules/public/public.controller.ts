@@ -347,42 +347,6 @@ export const publicController = {
   },
 
   /**
-   * Musteri menu uygulamasindan garson cagirma. Kimlik dogrulamasi yok
-   * (musteri hesabi olmaz) ama masanin GERCEKTEN o restorana ait oldugu
-   * dogrulanir; boylece rastgele bir tableId ile baska tenant'in odasina
-   * sinyal gonderilemez.
-   */
-  async callWaiter(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { slug } = req.params;
-      const { tableId } = req.body as { tableId?: string };
-      if (!tableId) {
-        apiError(res, 400, 'Masa numarası gereklidir.');
-        return;
-      }
-
-      const tenantId = await getTenantIdBySlug(String(slug));
-      if (!tenantId) return apiError(res, 404, 'Restoran bulunamadı.');
-
-      const table = await prisma.restaurantTable.findFirst({
-        where: { id: tableId, tenantId },
-        select: { id: true },
-      });
-      if (!table) return apiError(res, 404, 'Masa bulunamadı.');
-
-      const { getIO } = await import('../../websocket/socket.server');
-      getIO().to(`tenant:${tenantId}`).emit('waiter:called', {
-        tableId,
-        time: new Date().toISOString(),
-      });
-
-      apiResponse({ res, message: 'Garson çağrıldı' });
-    } catch (error) {
-      next(error);
-    }
-  },
-
-  /**
    * Legacy method (kept for compatibility)
    */
   async getMenu(req: Request, res: Response, next: NextFunction) {

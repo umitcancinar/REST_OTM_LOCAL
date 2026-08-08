@@ -157,3 +157,49 @@ bilinçli olarak sana bıraktım.
 **Durum:** Kimse çağırmıyor ama bozuk da değil (auth'lu, doğru çalışıyor).
 İleride personel panelinden manuel "garson çağır" tetiklemek istenirse
 kullanılabilir; istenmiyorsa kaldırılabilir.
+
+---
+
+## Y-16 · Lisans control-plane kalıcı güvenlik sertleştirmesi
+
+**Öncelik:** P1 — saha kurulumundan önce tasarım kararı ve migration gerekir.
+
+1. `License.key` veritabanında plaintext tutulmamalı. Ayrı ve rotasyonlu bir
+   sunucu pepper'ı ile HMAC-SHA-256 `keyHash`, maskeleme için `keyLast4`
+   saklanmalı; activate/heartbeat gelen ham anahtarı hashleyerek aramalı.
+   Mevcut plaintext kayıtları hashleyen veri migration'ından sonra `key`
+   kolonu kaldırılmalı.
+2. Audit geçmişi tenant/license silinince cascade ile kaybolmamalı. Lisanslar
+   fiziksel silme yerine tombstone/archive olmalı; audit tablosunda
+   UPDATE/DELETE DB rolü veya trigger ile engellenmeli. Gerekiyorsa harici
+   append-only güvenlik loguna da gönderilmeli.
+3. İş kuralı netleştirilmeli: bir tenant için aynı anda yalnız bir geçerli
+   lokal sunucu lisansı isteniyorsa bunu yalnız uygulama kontrolüyle değil,
+   `status <> 'REVOKED'` koşullu partial unique index veya açık bir
+   location/device-seat modeliyle DB seviyesinde garanti et.
+
+**Bitti sayılır:** DB salt-okunur sızıntısı kullanılabilir lisans anahtarı
+vermiyor; tenant silme audit'i silemiyor; eşzamanlı iki create iş kuralını
+ihlal edemiyor.
+
+---
+
+## Y-17 · [YAPILDI 08.08.2026] Sipariş numarası için atomik günlük sayaç
+
+**Durum:** Tamamlandı ve API regresyon testleriyle doğrulandı.
+
+Idempotency aynı istemci komutunun tekrarını engelliyor; ancak mevcut
+`generateOrderNumber()` aynı günün siparişlerini sayıp `count + 1` üretiyor.
+İki farklı garson iki farklı siparişi aynı anda açarsa aynı görünen `ORD-xxx`
+numarasını alabilir. Tenant+iş günü scoped `OrderCounter` satırı transaction
+içinde atomik increment edilmeli; numara DB unique constraint ile korunmalı ve
+işletme zaman dilimi açıkça uygulanmalı. Mevcut olası tekrarlar migration
+öncesi raporlanmadan unique index eklenmemeli.
+
+Uygulanan çözüm: tenant + UTC gün scoped `OrderCounter` satırı aynı transaction
+içinde PostgreSQL `INSERT ... ON CONFLICT ... DO UPDATE` ile artırılıyor.
+Gösterim numarası `ORD-YYYYMMDD-NNN`; `tenantId + orderNumber` DB unique
+constraint ile korunuyor. Migration olası eski tekrarları önce
+`order_number_migration_conflicts` tablosuna raporluyor, sonra sonraki kayıtları
+izlenebilir legacy numaralara ayırıyor. İdempotency replay aynı sayacı yeniden
+artırmıyor.

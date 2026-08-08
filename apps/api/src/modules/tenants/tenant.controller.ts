@@ -84,7 +84,7 @@ export const tenantController = {
   async delete(req: Request, res: Response, next: NextFunction) {
     try {
       await tenantService.delete(((req.params.id as string)));
-      apiResponse({ res, message: 'Tenant deleted' });
+      apiResponse({ res, message: 'Restoran ve gecmisi korunarak devre disi birakildi' });
     } catch (error) { next(error); }
   },
 

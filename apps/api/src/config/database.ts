@@ -3,7 +3,7 @@
 // ==========================================
 
 import { PrismaClient } from '@prisma/client';
-import { env } from './env';
+import { sharedEnv } from './env.shared';
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -12,10 +12,10 @@ const globalForPrisma = globalThis as unknown as {
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
-    log: env.isDev ? ['query', 'warn', 'error'] : ['error'],
+    log: sharedEnv.isDev ? ['query', 'warn', 'error'] : ['error'],
   });
 
-if (!env.isProd) {
+if (!sharedEnv.isProd) {
   globalForPrisma.prisma = prisma;
 }
 

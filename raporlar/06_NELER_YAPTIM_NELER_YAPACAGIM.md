@@ -30,6 +30,9 @@ ağdaki garson telefonlarına ve yazıcılara hizmet veren profesyonel REST_OTM.
 ### Mimari kararlar
 
 - `BİTTİ` SQLite yerine native, loopback-only PostgreSQL seçildi.
+- `TEYİT` Veri hacmi küçük olsa da çoklu garson/kasa/yazıcı eşzamanlılığı ve
+  mevcut PostgreSQL enum/JSON/String[] şeması nedeniyle 08.08.2026'da bu karar
+  kullanıcıyla yeniden değerlendirildi ve PostgreSQL'de kalındı.
 - `BİTTİ` Docker Desktop'ın müşteri paketine girmemesi kararlaştırıldı.
 - `BİTTİ` Windows Service + Tauri kontrol merkezi + WiX/Inno installer topolojisi
   belirlendi.
@@ -67,41 +70,96 @@ ağdaki garson telefonlarına ve yazıcılara hizmet veren profesyonel REST_OTM.
 - `GEÇTİ` Waiter typecheck.
 - `GEÇTİ` Menu typecheck.
 - `GEÇTİ` Print-agent: 26/26; gerçek loopback network transport testi dahil.
-- `BİTTİ` GitHub CI: frozen install, tüm typecheck'ler ve license/API/print
-  testleri zorunlu hâle getirildi. İlk uzak CI çalışması henüz doğrulanmadı.
+- `BİTTİ (LOKAL)` GitHub CI tanımı: frozen install, tüm typecheck'ler ve
+  license/API/print testleri hazırlandı. HTTPS GitHub kimliğinde `workflow`
+  scope olmadığı için `.github/workflows/ci.yml` henüz uzak dala gönderilemedi;
+  uzakta CI çalıştı denemez.
+- `GEÇTİ` API: 57/57 (lisans admin/runtime, yedek, idempotency, atomik sipariş
+  numarası ve public sınır dahil).
+- `GEÇTİ` Release/staging sınırı: 12/12.
+- `GEÇTİ` Windows paketleme güvenlik iskeleti statik kontrolleri: 8/8.
+- `GEÇTİ` Monorepo TypeScript: 10 proje.
+
+### İkinci kilometre taşı — çalışan runtime yüzeyleri
+
+- `BİTTİ` `RUNTIME_MODE=cloud/local/all` mantıksal route ayrımı ve Render
+  `start:cloud` girişi.
+- `BİTTİ` Müşteri paketi için env ile cloud/all'a çevrilemeyen ayrı
+  `local.ts`; Render için ayrı `cloud.ts` başlangıcı.
+- `BİTTİ` Production localde Ed25519 public key ve HTTPS lisans sunucusu;
+  cloud'da Ed25519 private key fail-fast doğrulaması.
+- `BİTTİ` REST, Socket.IO paketleri ve background job için fail-closed lokal
+  lisans kapısı; geçişte mevcut socketlerin kapatılması.
+- `BİTTİ` Saatlik heartbeat, kilitliyken kontrollü retry, aktivasyon/status
+  rotaları ve güvenli process shutdown.
+- `BİTTİ` Profesyonel `/activate` aktivasyon/kilit ekranı ve 423 yönlendirmesi.
+- `BİTTİ` Superadmin lisans kasası: create/extend/suspend/resume/revoke/reset/
+  rebind, tek seferlik tam anahtar, maskeli liste ve audit.
+- `BİTTİ` Lisans activate/heartbeat TOCTOU yarışları kapatıldı; PENDING kayıt
+  aktif entitlement olarak imzalanamıyor.
+- `BİTTİ` Audit tablosu append-only trigger + restrict ilişki; restoran silme
+  finansal/audit geçmişini koruyan soft-disable oldu.
+- `BİTTİ` `subscriptionExpiresAt` auth kilidi kaldırıldı; çalışma süresinin tek
+  karar noktası imzalı License entitlement oldu.
+- `BİTTİ` Yerel PostgreSQL yedek runtime: `pg_dump -Fc`, partial+fsync+SHA-256,
+  atomik rename, tek işlem kilidi, günlük/haftalık/aylık retention ve OWNER-only
+  recovery rotaları.
+- `BİTTİ` Admin/garson API ve Socket varsayılanları `localhost` yerine aynı
+  LAN originine çevrildi; telefonda kendi localhost'una gitme hatası kapandı.
+- `BİTTİ` Next admin/waiter/menu standalone çıktı ayarı.
+- `BİTTİ` Cloud public router'dan yıkıcı `fix-tables` çıkarıldı ve regresyon
+  testi eklendi.
+- `BİTTİ` Cloud menu/public projection ve outbound-only sync tasarımı
+  `raporlar/07_CLOUD_MENU_SYNC_TASARIMI.md` içine yazıldı.
+- `BİTTİ` Kaynak, source map, test, private key ve yanlış profile ait modül
+  taşıyan release artifact'ini reddeden fail-closed denetim.
+- `BİTTİ` Cloud ve local API için gerçek CommonJS dependency closure staging:
+  cloud artifact 42 dosya, local artifact 91 dosya; iki artifact de sınır
+  denetiminden geçti. Localde signing/private-key kodu, cloud'da operasyon,
+  Socket.IO, backup ve print kodu bulunmuyor.
+- `BİTTİ` Sipariş açma komutlarına tenant-scoped idempotency anahtarı ve payload
+  hash kontrolü eklendi; aynı komut tekrarında sipariş/yazdırma/stok yan etkisi
+  tekrarlanmıyor.
+- `BİTTİ` Sipariş numarası `ORD-YYYYMMDD-NNN` formatında transaction içi atomik
+  PostgreSQL sayacına taşındı; tenant + orderNumber unique constraint ve legacy
+  çakışma raporu eklendi.
+- `BİTTİ` WiX v4/Burn Windows kurulum sözleşmesi, delayed-auto/recovery service,
+  DPAPI secret provisioning, ProgramData veri koruması, loopback iç portları ve
+  yalnız Private+LocalSubnet `8787` firewall politikası eklendi.
 
 ## Şimdi yapıyorum
 
 ### Faz 1 — cloud/local fiziksel ayrımı
 
-- Cloud API: license, superadmin, public/common menu, update control plane.
-- Local API: auth, table, order, payment, inventory, reports, printing.
-- Cloud private key/signing modülünün local artifact dependency graph'ından
-  çıkarılması.
-- Tek abonelik/lisans süre kaynağı ve bootstrap/sync sözleşmesi.
-- Render tanımının yalnız cloud servislerini çalıştırması.
+- `BİTTİ` Cloud API: license, superadmin ve salt-okuma public projection.
+- `BİTTİ` Local API: auth, table, order, payment, inventory, reports, Socket.IO,
+  backup ve printing yüzeyleri.
+- `BİTTİ` Cloud private key/signing modülü local artifact dependency graph'ından
+  fiziksel olarak çıkarıldı.
+- `BİTTİ` Tek abonelik/lisans süre kaynağı imzalı License entitlement oldu.
+- `BİTTİ` Render yalnız `cloud.ts` girişini çalıştırıyor.
+- `KALDI` Ortak menü projection outbox/sync protokolünün uygulanması.
 
 ### Faz 2 — lisans runtime ve ekranları
 
-- Local runtime license manager.
-- Aktivasyon/recovery uçları.
-- REST, Socket.IO ve background job için merkezi lisans gate.
-- Aktivasyon wizard ve kontrollü kilit ekranı.
-- Superadmin License CRUD, üretme, suspend, revoke, rebind ve audit.
-- TPM/CNG device key; DPAPI fallback; signed challenge heartbeat.
+- `BİTTİ` Local runtime license manager ve aktivasyon/recovery uçları.
+- `BİTTİ` REST, Socket.IO ve background job için merkezi lisans gate.
+- `BİTTİ` Aktivasyon wizard, kontrollü kilit ekranı ve superadmin License CRUD.
+- `KALDI` TPM/CNG device key; DPAPI fallback; signed challenge heartbeat.
 
 ### Faz 3 — Windows runtime
 
-- Portable/native PostgreSQL service.
-- Local API, Next standalone admin/waiter ve print-agent supervisor.
-- Tek origin gateway.
-- Firewall, mDNS/IP fallback, garson QR.
-- Tauri kontrol merkezi.
+- `BİTTİ (İSKELET)` WiX/Burn, Windows service, DPAPI, veri dizini ve firewall
+  kurulum sözleşmesi.
+- `KALDI` İmzalı native supervisor/bootstrap ve paketlenmiş PostgreSQL service.
+- `KALDI` Local API, Next standalone admin/waiter ve print-agent gerçek payload.
+- `KALDI` Tek origin gateway, mDNS/IP fallback, garson QR ve Tauri kontrol merkezi.
 
 ### Faz 4 — dayanıklılık ve saha kalitesi
 
 - Transactional order/menu/print outbox ve idempotency.
-- Otomatik yedek, hash/şifreleme, retention ve restore testi.
+- Otomatik yedek + hash + retention tamam; DPAPI/BitLocker anahtar koruması,
+  ayrı fiziksel kopya ve otomatik restore testi kaldı.
 - İmzalı update manifesti, health gate ve rollback.
 - Profesyonel ortak UI package ve mobile-first waiter sıcak akışı.
 - Self-host fontlar, reduced-motion, erişilebilir dialog/bottom-sheet.

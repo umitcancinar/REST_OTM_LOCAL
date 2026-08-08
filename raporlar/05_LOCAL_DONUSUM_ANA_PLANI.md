@@ -254,19 +254,20 @@ Güncelleme:
 
 ### Faz 1 — fiziksel cloud/local ayrımı
 
-- [ ] `apps/cloud-api`: license, superadmin, ortak menü, update control plane
-- [ ] `apps/local-api`: operasyon API'si
-- [ ] Tek süre kaynağı: License entitlement/subscription
-- [ ] Cloud private key'in local dependency graph'ında olmadığını CI ile kanıtlama
-- [ ] Render tanımını yalnız cloud servislerine indirme
+- [x] Ayrı cloud entrypoint/artifact: license, superadmin, salt-okuma projection
+- [x] Ayrı local entrypoint/artifact: operasyon, Socket.IO, backup ve printing
+- [x] Tek süre kaynağı: imzalı License entitlement
+- [x] Cloud private key'in local artifact'ta olmadığını fail-closed audit ile kanıtlama
+- [x] Render tanımını yalnız cloud entrypoint'e indirme
+- [ ] Ortak/public menü projection outbox/sync uygulaması
 
 ### Faz 2 — lisans runtime ve UI
 
 - [ ] Native guard/supervisor
-- [ ] Aktivasyon ve recovery ekranı
-- [ ] Global API/WS/job license gate
+- [x] Aktivasyon ve kontrollü kilit/recovery ekranı
+- [x] Global API/WS/job license gate
 - [ ] Jitter'lı heartbeat + imzalı lease
-- [ ] Superadmin License CRUD/suspend/revoke/rebind/audit UI
+- [x] Superadmin License CRUD/suspend/revoke/rebind/audit UI
 
 ### Faz 3 — yerel saha runtime'ı
 
@@ -275,11 +276,13 @@ Güncelleme:
 - [ ] Local API + Socket.IO + print-agent supervision
 - [ ] Tek origin gateway
 - [ ] Firewall, mDNS/IP fallback ve garson QR
+- [x] WiX/Burn, service recovery, DPAPI, ProgramData ve firewall güvenlik iskeleti
 
 ### Faz 4 — dayanıklılık
 
 - [ ] Order/menu/print transactional outbox
-- [ ] Otomatik yedek ve restore doğrulama
+- [x] Atomik PostgreSQL yedek, hash ve retention runtime
+- [ ] Şifreleme, ayrı fiziksel kopya ve restore doğrulama
 - [ ] İmzalı update ve rollback
 - [ ] Health/readiness paneli
 
@@ -295,16 +298,16 @@ Güncelleme:
 | İstenen | Güncel durum |
 |---|---|
 | Kurulum dosyası, birkaç tıkla kurulum | Planlandı, henüz yok |
-| Lokal sunucunun açılması | Planlandı, henüz runtime yok |
-| Lokal veritabanı | PostgreSQL kararı verildi; paketleme yok |
-| Lisans anahtarı giriş ekranı | Henüz yok |
-| Süre bitince kilit/recovery ekranı | Henüz yok |
-| Periyodik yoklama | Çekirdek var; runtime entegrasyonu yok |
-| Kod gizleme/paketleme | Mimari kararı var; release pipeline yok |
-| Windows otomatik başlama | Service mimarisi kararı var; uygulama yok |
+| Lokal sunucunun açılması | API runtime var; Windows supervisor/gateway yok |
+| Lokal veritabanı | PostgreSQL + yedek runtime var; Windows paketleme yok |
+| Lisans anahtarı giriş ekranı | Tamamlandı; Windows temiz VM kabulü bekliyor |
+| Süre bitince kilit/recovery ekranı | Tamamlandı; saha kabulü bekliyor |
+| Periyodik yoklama | Saatlik runtime + retry tamamlandı |
+| Kod gizleme/paketleme | Fiziksel API split ve fail-closed audit geçti; native/UI payload bundling kaldı |
+| Windows otomatik başlama | WiX/service iskeleti var; imzalı supervisor ve Win11 kabulü yok |
 | Print-agent pakete girsin | Agent çalışıyor ve testleri geçiyor; supervisor yok |
-| Garson Wi-Fi'dan bağlansın | LAN topolojisi kararı var; gateway/QR yok |
-| Superadmin lisans üretme/yönetme | Model/activate/heartbeat var; CRUD UI yok |
+| Garson Wi-Fi'dan bağlansın | Same-origin istemci düzeltildi; gateway/QR/firewall yok |
+| Superadmin lisans üretme/yönetme | CRUD/lifecycle/audit API ve profesyonel UI tamam |
 
 Bu tablo her faz sonunda güncellenecek; “bitti” yalnız temiz Windows VM ve gerçek
 telefon/yazıcı kabul testi geçtiğinde yazılacaktır.

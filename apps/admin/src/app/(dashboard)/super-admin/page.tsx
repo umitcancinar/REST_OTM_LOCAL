@@ -3,40 +3,17 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import {
-  Building2, LogIn, Plus, Globe,
-  CalendarDays, CreditCard, Trash2, X, AlertTriangle,
-  Search, ShieldCheck, Users, Activity, Crown, BarChart3,
-  Settings, Zap, Monitor, Clock, PlusCircle, MinusCircle, Loader2
+  Building2, LogIn, Plus,
+  CalendarDays, Trash2, X, AlertTriangle,
+  Search, ShieldCheck, Users, Activity, Crown,
 } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import Portal from '@/components/ui/Portal';
-
-/** subscriptionExpiresAt'tan kalan gun + renk hesaplar. */
-function subscriptionStatus(subscriptionExpiresAt: string | null | undefined) {
-  if (!subscriptionExpiresAt) {
-    return { label: 'Süre ayarlanmamış', color: 'var(--text-tertiary)', days: null as number | null };
-  }
-  const ms = new Date(subscriptionExpiresAt).getTime() - Date.now();
-  const days = Math.ceil(ms / (1000 * 60 * 60 * 24));
-  if (days < 0) return { label: `Süresi ${Math.abs(days)} gün önce doldu`, color: '#ef4444', days };
-  if (days === 0) return { label: 'Bugün doluyor', color: '#ef4444', days };
-  if (days <= 7) return { label: `${days} gün kaldı`, color: '#ef4444', days };
-  if (days <= 14) return { label: `${days} gün kaldı`, color: '#f59e0b', days };
-  return { label: `${days} gün kaldı`, color: '#10b981', days };
-}
-
-const SUBSCRIPTION_STEPS = [
-  { label: '1 Ay', months: 1 },
-  { label: '3 Ay', months: 3 },
-  { label: '6 Ay', months: 6 },
-  { label: '1 Yıl', months: 12 },
-];
 
 export default function SuperAdminPage() {
   const [tenants, setTenants] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [adjustingTenantId, setAdjustingTenantId] = useState<string | null>(null);
   const toast = useToast();
 
   // Modals state
@@ -76,62 +53,6 @@ export default function SuperAdminPage() {
     window.location.href = '/overview';
   };
 
-  const toggleFeature = async (tenantId: string, feature: string, currentValue: boolean) => {
-    try {
-      const tenant = tenants.find(t => t.id === tenantId);
-      if (!tenant) return;
-      
-      let settings = tenant.settings;
-      if (typeof settings === 'string') {
-        try { settings = JSON.parse(settings); } catch (e) { settings = {}; }
-      }
-      settings = settings || {};
-      
-      const features = settings.features || {
-        website: true, reservations: true, takeaway: true, pos: true
-      };
-
-      const updatedSettings = {
-        ...settings,
-        features: {
-          ...features,
-          [feature]: !currentValue
-        }
-      };
-
-      // Optimistic Update
-      setTenants(prev => prev.map(t => {
-        if (t.id === tenantId) return { ...t, settings: updatedSettings };
-        return t;
-      }));
-
-      await api.patch(`/tenants/${tenantId}`, { settings: updatedSettings });
-      toast.success('Lisans başarıyla güncellendi.');
-    } catch (err) {
-      toast.error('Lisans güncellenemedi.');
-      fetchTenants(); // Revert on failure
-    }
-  };
-
-  /**
-   * Uyelik suresini uzatir (months > 0) veya azaltir (months < 0).
-   * PATCH /tenants/:id/subscription — yalnizca SUPER_ADMIN cagirabilir
-   * (bkz. apps/api/src/modules/tenants/tenant.routes.ts).
-   */
-  const handleAdjustSubscription = async (tenantId: string, months: number) => {
-    if (adjustingTenantId) return; // ayni anda ikinci istegi engelle
-    setAdjustingTenantId(tenantId);
-    try {
-      const updated = await api.patch(`/tenants/${tenantId}/subscription`, { months });
-      setTenants(prev => prev.map(t => (t.id === tenantId ? { ...t, subscriptionExpiresAt: updated.subscriptionExpiresAt } : t)));
-      toast.success(months > 0 ? `Üyelik ${months} ay uzatıldı.` : `Üyelik ${Math.abs(months)} ay azaltıldı.`);
-    } catch (err) {
-      toast.error('Üyelik süresi güncellenemedi.');
-    } finally {
-      setAdjustingTenantId(null);
-    }
-  };
-
   const handleCreateTenant = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -152,7 +73,7 @@ export default function SuperAdminPage() {
     if (!deleteTenantId) return;
     try {
       await api.delete(`/tenants/${deleteTenantId}`);
-      toast.success('Restoran kalıcı olarak silindi.');
+      toast.success('Restoran ve geçmişi korunarak devre dışı bırakıldı.');
       setDeleteTenantId(null);
       fetchTenants();
     } catch (err: any) {
@@ -203,22 +124,36 @@ export default function SuperAdminPage() {
             </div>
           </div>
 
-          <button 
-            onClick={() => setIsAddModalOpen(true)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: '12px 24px', borderRadius: 14,
-              background: 'rgba(255,255,255,0.15)',
-              backdropFilter: 'blur(20px)',
-              border: '1px solid rgba(255,255,255,0.25)',
-              color: '#fff', fontWeight: 700, fontSize: '0.9375rem',
-              cursor: 'pointer', transition: 'all 0.2s',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.25)'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; }}
-          >
-            <Plus size={18} strokeWidth={2.5} /> Yeni Restoran
-          </button>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            <button
+              onClick={() => { window.location.href = '/super-admin/licenses'; }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '12px 20px', borderRadius: 14,
+                background: '#fff', border: '1px solid #fff',
+                color: '#312e81', fontWeight: 800, fontSize: '0.9375rem',
+                cursor: 'pointer', boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
+              }}
+            >
+              <ShieldCheck size={18} strokeWidth={2.4} /> Lisans Kasası
+            </button>
+            <button
+              onClick={() => setIsAddModalOpen(true)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '12px 24px', borderRadius: 14,
+                background: 'rgba(255,255,255,0.15)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255,255,255,0.25)',
+                color: '#fff', fontWeight: 700, fontSize: '0.9375rem',
+                cursor: 'pointer', transition: 'all 0.2s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.25)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; }}
+            >
+              <Plus size={18} strokeWidth={2.5} /> Yeni Restoran
+            </button>
+          </div>
         </div>
 
         {/* Quick Stats */}
@@ -271,9 +206,6 @@ export default function SuperAdminPage() {
             const userCount = tenant._count?.users || 0;
             const planLabel = features.pos ? 'Pro Plan' : 'Temel Plan';
             const planColor = features.pos ? '#8b5cf6' : '#6b7280';
-            const subStatus = subscriptionStatus(tenant.subscriptionExpiresAt);
-            const isAdjustingThis = adjustingTenantId === tenant.id;
-
             return (
               <div 
                 key={tenant.id} 
@@ -350,7 +282,7 @@ export default function SuperAdminPage() {
                         e.currentTarget.style.borderColor = 'transparent';
                         e.currentTarget.style.color = 'var(--text-muted)'; 
                       }}
-                      title="Restoranı Sil"
+                      title="Restoranı devre dışı bırak"
                     >
                       <Trash2 size={16} />
                     </button>
@@ -403,89 +335,8 @@ export default function SuperAdminPage() {
                     <LogIn size={16} strokeWidth={2.5} /> İçeri Gir (Impersonate)
                   </button>
 
-                  {/* Uyelik Suresi */}
-                  <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                      <h4 style={{
-                        fontSize: '0.6875rem', fontWeight: 800, color: 'var(--text-tertiary)',
-                        textTransform: 'uppercase', letterSpacing: '0.08em',
-                        display: 'flex', alignItems: 'center', gap: 6,
-                      }}>
-                        <Clock size={12} /> Üyelik Süresi
-                      </h4>
-                      <span style={{ fontSize: '0.75rem', fontWeight: 800, color: subStatus.color }}>
-                        {isAdjustingThis ? <Loader2 size={13} className="animate-spin" /> : subStatus.label}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {SUBSCRIPTION_STEPS.map(step => (
-                        <button
-                          key={`add-${step.months}`}
-                          type="button"
-                          disabled={isAdjustingThis}
-                          onClick={() => handleAdjustSubscription(tenant.id, step.months)}
-                          title={`${step.label} ekle`}
-                          style={{
-                            display: 'flex', alignItems: 'center', gap: 4,
-                            padding: '5px 9px', borderRadius: 8, fontSize: '0.6875rem', fontWeight: 700,
-                            border: '1px solid #86efac', background: '#f0fdf4', color: '#15803d',
-                            cursor: isAdjustingThis ? 'not-allowed' : 'pointer', opacity: isAdjustingThis ? 0.5 : 1,
-                          }}
-                        >
-                          <PlusCircle size={11} /> {step.label}
-                        </button>
-                      ))}
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
-                      {SUBSCRIPTION_STEPS.map(step => (
-                        <button
-                          key={`sub-${step.months}`}
-                          type="button"
-                          disabled={isAdjustingThis}
-                          onClick={() => handleAdjustSubscription(tenant.id, -step.months)}
-                          title={`${step.label} azalt`}
-                          style={{
-                            display: 'flex', alignItems: 'center', gap: 4,
-                            padding: '5px 9px', borderRadius: 8, fontSize: '0.6875rem', fontWeight: 700,
-                            border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-tertiary)',
-                            cursor: isAdjustingThis ? 'not-allowed' : 'pointer', opacity: isAdjustingThis ? 0.5 : 1,
-                          }}
-                        >
-                          <MinusCircle size={11} /> {step.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Feature Toggles */}
-                  <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-                    <h4 style={{ 
-                      fontSize: '0.6875rem', fontWeight: 800, color: 'var(--text-tertiary)', 
-                      textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10,
-                      display: 'flex', alignItems: 'center', gap: 6,
-                    }}>
-                      <Settings size={12} /> Modül Lisansları
-                    </h4>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                      <FeatureToggle 
-                        icon={<Globe size={14} />} 
-                        label="Web Sitesi" 
-                        isActive={features.website} 
-                        onToggle={() => toggleFeature(tenant.id, 'website', features.website)} 
-                      />
-                      <FeatureToggle 
-                        icon={<CalendarDays size={14} />} 
-                        label="Rezervasyon" 
-                        isActive={features.reservations} 
-                        onToggle={() => toggleFeature(tenant.id, 'reservations', features.reservations)} 
-                      />
-                      <FeatureToggle 
-                        icon={<Monitor size={14} />} 
-                        label="POS Sistemi" 
-                        isActive={features.pos} 
-                        onToggle={() => toggleFeature(tenant.id, 'pos', features.pos)} 
-                      />
-                    </div>
+                  <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, color: 'var(--text-secondary)', fontSize: '0.8125rem', lineHeight: 1.6 }}>
+                    Süre, cihaz bağı ve modül yetkileri tek kaynak olarak <strong>Lisans Kasası</strong> üzerinden yönetilir.
                   </div>
                 </div>
               </div>
@@ -621,9 +472,9 @@ export default function SuperAdminPage() {
               }}>
                 <AlertTriangle size={32} strokeWidth={1.5} />
               </div>
-              <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 12 }}>Restoranı Sil?</h3>
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 12 }}>Restoranı Devre Dışı Bırak?</h3>
               <p style={{ color: 'var(--text-secondary)', marginBottom: 28, fontSize: '0.875rem', lineHeight: 1.6 }}>
-                Bu işlem geri alınamaz. Restorana ait tüm veriler (menü, siparişler, personel) kalıcı olarak silinecektir.
+                Finansal veriler ve lisans işlem geçmişi silinmez. Restoran erişimi durdurulur ve gerekirse daha sonra kontrollü olarak yeniden açılabilir.
               </p>
               
               <div style={{ display: 'flex', gap: 12 }}>
@@ -639,7 +490,7 @@ export default function SuperAdminPage() {
                   className="btn btn-danger"
                   style={{ flex: 1 }}
                 >
-                  Evet, Sil
+                  Devre Dışı Bırak
                 </button>
               </div>
             </div>
@@ -666,42 +517,5 @@ function QuickStat({ icon, label, value }: { icon: React.ReactNode; label: strin
         <div style={{ fontSize: '1.25rem', fontWeight: 900 }}>{value}</div>
       </div>
     </div>
-  );
-}
-
-function FeatureToggle({ icon, label, isActive, onToggle }: { icon: any, label: string, isActive: boolean, onToggle: () => void }) {
-  return (
-    <button 
-      type="button"
-      onClick={onToggle}
-      style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        width: '100%', padding: '8px 12px', borderRadius: 10,
-        border: `1px solid ${isActive ? '#10b981' : 'var(--border)'}`,
-        background: isActive ? '#ecfdf5' : 'var(--bg-elevated)',
-        color: isActive ? '#059669' : 'var(--text-tertiary)',
-        cursor: 'pointer', transition: 'all 0.25s',
-        fontSize: '0.75rem', fontWeight: 700,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        {icon}
-        <span>{label}</span>
-      </div>
-      
-      {/* Toggle Switch */}
-      <div style={{ 
-        width: 28, height: 14, borderRadius: 99, position: 'relative',
-        background: isActive ? '#10b981' : 'var(--border)',
-        transition: 'background 0.25s',
-      }}>
-        <div style={{ 
-          position: 'absolute', top: 2, left: isActive ? 14 : 2,
-          width: 10, height: 10, borderRadius: '50%',
-          background: '#fff', transition: 'left 0.25s',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
-        }} />
-      </div>
-    </button>
   );
 }

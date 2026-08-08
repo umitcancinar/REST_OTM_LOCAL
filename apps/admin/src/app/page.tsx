@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Mail, Lock, LogIn, Loader2, AlertCircle, Sparkles, User, Wallet } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Mail, Lock, LogIn, Loader2, AlertCircle, Sparkles } from 'lucide-react';
 import styles from './page.module.css';
 
 export default function LoginPage() {
@@ -10,19 +10,47 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
+  useEffect(() => {
+    const controller = new AbortController();
+    const checkLocalLicense = async () => {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || '/api'}/local-license/status`, {
+          cache: 'no-store',
+          headers: { Accept: 'application/json' },
+          signal: controller.signal,
+        });
+        // Cloud profilinde bu rota 404 doner; yalniz local profilindeki
+        // acik bir lisans karari aktivasyon ekranina yonlendirir.
+        if (!response.ok) return;
+        const body = await response.json() as { data?: { operational?: boolean } };
+        if (body.data?.operational === false) window.location.replace('/activate');
+      } catch {
+        // Giris ekrani servis baslatilirken de gorunebilir. Gercek istek 423
+        // alirsa ortak API yardimcisi guvenli yonlendirmeyi yapar.
+      }
+    };
+    void checkLocalLicense();
+    return () => controller.abort();
+  }, []);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
 
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api'}/auth/login`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || '/api'}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
 
       const data = await res.json();
+
+      if (res.status === 423) {
+        window.location.replace('/activate');
+        return;
+      }
 
       if (!res.ok) {
         setError(data.message || 'Giriş başarısız');
