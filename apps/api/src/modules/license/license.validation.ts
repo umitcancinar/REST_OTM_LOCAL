@@ -23,25 +23,12 @@ export const heartbeatSchema = z.object({
 });
 
 // ==========================================
-// Govde tipleri BILEREK elle yazildi (z.infer degil)
+// Govde tipleri semadan tureti1lir
 // ==========================================
-// apps/api/tsconfig.json icinde "strict": false. Zod'un tip cikarimi
-// strictNullChecks'e dayanir; kapali oldugunda kosullu tipleri cokuyor ve
-// z.infer TUM alanlari istege bagli gosteriyor. Bu da servis girdileriyle
-// uyumsuzluk uretiyor.
-//
-// Kalici cozum apps/api icin strict modu acmaktir; ancak bu, mevcut kodda
-// genis capli duzeltme gerektirdiginden ayri ele alinmali. O gune kadar
-// tipleri burada acikca tanimlayip semayla es tutuyoruz.
-export interface ActivateBody {
-  licenseKey: string;
-  hardwareId: string;
-  hardwareIdShort?: string;
-  appVersion?: string;
-}
+// apps/api/tsconfig.json artik "strict": true. Zod'un tip cikarimi
+// strictNullChecks'e dayandigi icin z.infer dogru sonuc verir: zorunlu
+// alanlar zorunlu, .optional() olanlar istege bagli kalir. Tipleri elle
+// yazmaya gerek yok — sema tek dogruluk kaynagidir ve ikisi asla ayrisamaz.
+export type ActivateBody = z.infer<typeof activateSchema>;
 
-export interface HeartbeatBody {
-  licenseKey: string;
-  hardwareId: string;
-  appVersion?: string;
-}
+export type HeartbeatBody = z.infer<typeof heartbeatSchema>;

@@ -20,7 +20,7 @@ infra/backup/pgbackrest.conf
 backup.env
 
 # Build outputs
-# dist/ — allowed for apps/api so Render can use pre-built JS
+dist/
 build/
 .next/
 out/
@@ -70,9 +70,6 @@ apps/api/src/config/firebase-service-account.json
 
 # Gecici / silinecek dosyalar
 _to_delete/
-
-# Lisans paketi derleme ciktisi
-packages/license/dist/
 
 # Lisans OZEL anahtari — ASLA commit edilmez.
 # Sizarsa herkes kendine sinirsiz lisans uretebilir.

@@ -10,6 +10,12 @@ klasörü okuyup kaldığı yerden hatasız devam edebilsin.**
 | `02_GUVENLIK_RAPORU.md` | Sistem genelinde bulunan güvenlik ve hata bulguları (öncelik sıralı) |
 | `03_YAPILACAKLAR.md` | Sıradaki işler — her madde tek başına uygulanabilir şekilde yazıldı |
 | `04_YAZICI_MIMARISI.md` | Yazdırma sisteminin nasıl çalıştığı (yeni mimari) |
+| `05_LOCAL_DONUSUM_ANA_PLANI.md` | Local-first ürün mimarisi, güvenlik, installer ve saha kabul planı |
+| `06_NELER_YAPTIM_NELER_YAPACAGIM.md` | Her tur güncellenen aktif ilerleme ve devir günlüğü |
+
+> 08.08.2026 itibarıyla ana yön değişmiştir: operasyon sistemi müşterinin
+> Windows bilgisayarında ve yerel ağında çalışacak; lisans control plane ile
+> ortak/public menü servisi bulutta kalacaktır. Güncel ana kayıt `05_...` dosyasıdır.
 
 ## Altın kural
 

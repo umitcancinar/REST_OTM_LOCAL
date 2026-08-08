@@ -12,7 +12,7 @@
 // mesru bir durumdur ve restoran calismaya devam etmelidir. Kilitleme
 // yalnizca cevrimdisi tolerans suresi asildiginda devreye girer.
 
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
 import { join } from 'path';
 import { computeHardwareId, shortHardwareId } from './hardware';
 import { advanceState, verifyLicense } from './verify';
@@ -63,17 +63,21 @@ export function readStoredState(dir: string): LicenseState | undefined {
   try {
     return JSON.parse(readFileSync(statePath(dir), 'utf8')) as LicenseState;
   } catch {
-    // Durum dosyasi yoksa veya bozuksa: yoklama gecmisi bilinmiyor demektir.
-    // Bu, cevrimdisi toleransin sifirdan baslamasina yol acar — kasitli
-    // silme durumunda dogru davranis budur.
+    // Grace suresi bu dosyaya degil, imzali lisans icindeki offlineUntil'a
+    // dayanir. Dosyayi silmek veya bozmak cevrimdisi sureyi sifirlamaz.
     return undefined;
   }
 }
 
 function persist(dir: string, license: SignedLicense | null, state: LicenseState | null) {
   mkdirSync(dir, { recursive: true });
-  if (license) writeFileSync(licensePath(dir), JSON.stringify(license, null, 2), { mode: 0o600 });
-  if (state) writeFileSync(statePath(dir), JSON.stringify(state, null, 2), { mode: 0o600 });
+  const atomicWrite = (target: string, value: unknown) => {
+    const temporary = `${target}.next`;
+    writeFileSync(temporary, JSON.stringify(value, null, 2), { mode: 0o600 });
+    renameSync(temporary, target);
+  };
+  if (license) atomicWrite(licensePath(dir), license);
+  if (state) atomicWrite(statePath(dir), state);
 }
 
 // ─── Ag ────────────────────────────────────────────────────────────
@@ -151,21 +155,21 @@ export async function activate(cfg: ClientConfig, licenseKey: string): Promise<A
     return { ok: false, message: res.message ?? 'Etkinleştirme başarısız.' };
   }
 
-  const serverTime = new Date(res.data.serverTime);
-  const state = advanceState(readStoredState(cfg.dataDir), serverTime);
-  persist(cfg.dataDir, res.data.license, state);
-
-  // Sunucudan gelen lisansi hemen dogruluyoruz: bozuk/uyumsuz bir yanit
-  // diske yazilip sistemin bir sonraki acilista kilitlenmesine yol acmasin.
+  // Once dogrula, sonra diske yaz. Bozuk veya sahte bir sunucu yaniti son
+  // bilinen iyi lisansi ezerek kalici hizmet kesintisi yaratmamalidir.
+  const previousState = readStoredState(cfg.dataDir);
   const status = verifyLicense(res.data.license, {
     publicKeyPem: cfg.publicKeyPem,
     hardwareId,
-    state,
+    state: previousState,
   });
 
   if (status.state !== 'valid') {
     return { ok: false, message: 'Sunucudan geçersiz bir lisans alındı. Lütfen bizimle iletişime geçin.', status };
   }
+
+  const state = advanceState(previousState, new Date(status.license.issuedAt));
+  persist(cfg.dataDir, res.data.license, state);
 
   return { ok: true, message: 'Lisans etkinleştirildi.', status };
 }
@@ -197,9 +201,23 @@ export async function heartbeat(cfg: ClientConfig): Promise<LicenseStatus> {
     });
 
     if (res.success && res.data) {
-      // Sunucu taze imzali lisans dondu — sure uzatilmis olabilir.
-      const state = advanceState(readStoredState(cfg.dataDir), new Date(res.data.serverTime));
-      persist(cfg.dataDir, res.data.license, state);
+      const previousState = readStoredState(cfg.dataDir);
+      const candidate = verifyLicense(res.data.license, {
+        publicKeyPem: cfg.publicKeyPem,
+        hardwareId,
+        state: previousState,
+      });
+
+      // Imzasi ve cihazi dogru terminal durumlar da saklanir. Boylece
+      // askıya alma/iptal karari geldiginde eski aktif lisansla devam edilmez.
+      if (
+        'license' in candidate &&
+        ['valid', 'expired', 'grace_exceeded', 'license_disabled'].includes(candidate.state)
+      ) {
+        const state = advanceState(previousState, new Date(candidate.license.issuedAt));
+        persist(cfg.dataDir, res.data.license, state);
+        return candidate;
+      }
     }
     // res.success false ise (lisans askiya alinmis vb.) diskteki lisansi
     // DEGISTIRMIYORUZ; asagidaki dogrulama zaten dogru sonucu verecek.

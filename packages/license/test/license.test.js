@@ -114,7 +114,7 @@ test('suresi dolmus lisans reddedilir', () => {
 });
 
 test('internet kesintisinde tolerans suresi boyunca calismaya devam eder', () => {
-  const signed = makeLicense({ graceDays: 7 });
+  const signed = makeLicense({ graceDays: 7, issuedAt: daysFromNow(-5) });
   const state = {
     lastHeartbeatAt: daysFromNow(-5).toISOString(), // 5 gundur yoklama yok
     highWaterMark: daysFromNow(-5).toISOString(),
@@ -124,13 +124,32 @@ test('internet kesintisinde tolerans suresi boyunca calismaya devam eder', () =>
 });
 
 test('tolerans suresi asilirsa kilitlenir — sunucu kalici engellendiginde', () => {
-  const signed = makeLicense({ graceDays: 7 });
+  const signed = makeLicense({ graceDays: 7, issuedAt: daysFromNow(-9) });
   const state = {
     lastHeartbeatAt: daysFromNow(-9).toISOString(), // 9 gundur yoklama yok
     highWaterMark: daysFromNow(-9).toISOString(),
   };
   const r = verifyLicense(signed, { publicKeyPem, hardwareId: HW, state });
   assert.equal(r.state, 'grace_exceeded');
+});
+
+test('state dosyasi silinse bile imzali offlineUntil asilirsa kilitlenir', () => {
+  const signed = makeLicense({ graceDays: 7, issuedAt: daysFromNow(-9) });
+  const r = verifyLicense(signed, { publicKeyPem, hardwareId: HW });
+  assert.equal(r.state, 'grace_exceeded');
+});
+
+test('imzali askiya alma karari yerelde reddedilir', () => {
+  const signed = makeLicense({ entitlement: 'suspended' });
+  const r = verifyLicense(signed, { publicKeyPem, hardwareId: HW });
+  assert.equal(r.state, 'license_disabled');
+  assert.equal(r.entitlement, 'suspended');
+});
+
+test('offline tolerans uyelik bitisini asamaz', () => {
+  const signed = makeLicense({ expiresAt: daysFromNow(2), graceDays: 7 });
+  const payload = JSON.parse(signed.payload);
+  assert.ok(new Date(payload.offlineUntil) <= new Date(payload.expiresAt));
 });
 
 // ─── Bicim ve surum ─────────────────────────────────────────────────
@@ -146,7 +165,7 @@ test('gelecekteki lisans surumu tahmin edilmeden reddedilir', () => {
   payload.v = 99;
   // Yeni surumu dogru imzayla uret ki surum kontrolu test edilsin
   const resigned = issueLicense(
-    { ...payload, expiresAt: new Date(payload.expiresAt) },
+    { ...payload, issuedAt: new Date(payload.issuedAt), expiresAt: new Date(payload.expiresAt) },
     privateKeyPem,
   );
   const bumped = JSON.parse(resigned.payload);

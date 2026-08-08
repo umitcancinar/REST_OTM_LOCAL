@@ -43,7 +43,9 @@ export const publicController = {
       for (const tenant of tenants) {
         const tables = await prisma.restaurantTable.findMany({ where: { tenantId: tenant.id } });
         
-        const targetNames = [];
+        // Tip acikca yazilir: bos dizi baslangici strictNullChecks altinda
+        // `never[]` olarak cozulur ve push cagrilari hata verir.
+        const targetNames: Array<{ name: string; zone: string }> = [];
         for (let i = 1; i <= 24; i++) targetNames.push({ name: `MS${i}`, zone: 'Salon' });
         for (let i = 25; i <= 40; i++) targetNames.push({ name: `MT${i}`, zone: 'Teras' });
         for (let i = 1; i <= 20; i++) targetNames.push({ name: `VIP ${i}`, zone: 'VIP' });
@@ -57,10 +59,12 @@ export const publicController = {
         // Use extra tables to fulfill missing targets
         for (let i = 0; i < missingTargets.length; i++) {
           const target = missingTargets[i];
-          if (extraTables.length > 0) {
-            const tableToRename = extraTables.pop();
+          // pop() bos dizide undefined dondurur; dogrudan sonucu kontrol
+          // etmek `length > 0` ile ayni davranisi verir ve `!` gerektirmez.
+          const tableToRename = extraTables.pop();
+          if (tableToRename) {
             await prisma.restaurantTable.update({
-              where: { id: tableToRename!.id },
+              where: { id: tableToRename.id },
               data: { number: target.name, zone: target.zone }
             });
             totalUpdated++;

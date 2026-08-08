@@ -1,5 +1,9 @@
 # Yapılacaklar
 
+> **08.08.2026 local-first yön değişikliği:** Bu dosyadaki eski SaaS bakım
+> maddeleri geçerliliğini korur; ancak yeni ana öncelik ve uygulama sırası
+> `05_LOCAL_DONUSUM_ANA_PLANI.md` içinde tutulmaktadır.
+
 Her madde tek başına, bağlamsız uygulanabilecek şekilde yazıldı.
 Sıra: yukarıdan aşağıya.
 

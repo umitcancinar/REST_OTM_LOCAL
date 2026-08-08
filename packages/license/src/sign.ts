@@ -10,7 +10,12 @@
 // ortam degiskeninde durur, repoda bulunmaz.
 
 import { generateKeyPairSync, sign as edSign, createPrivateKey, randomBytes } from 'crypto';
-import { LICENSE_FORMAT_VERSION, LicensePayload, SignedLicense } from './types';
+import {
+  LICENSE_FORMAT_VERSION,
+  LicenseEntitlement,
+  LicensePayload,
+  SignedLicense,
+} from './types';
 
 /** Yeni bir Ed25519 anahtar cifti uretir. Kurulumda BIR KEZ calistirilir. */
 export function generateKeyPair(): { publicKeyPem: string; privateKeyPem: string } {
@@ -45,6 +50,8 @@ export interface IssueLicenseInput {
   expiresAt: Date;
   graceDays?: number;
   features?: string[];
+  entitlement?: LicenseEntitlement;
+  issuedAt?: Date;
 }
 
 /**
@@ -56,15 +63,22 @@ export interface IssueLicenseInput {
  * tutmaz. Bu yuzden SignedLicense.payload bir string'dir, nesne degil.
  */
 export function issueLicense(input: IssueLicenseInput, privateKeyPem: string): SignedLicense {
+  const issuedAt = input.issuedAt ?? new Date();
+  const graceDays = input.graceDays ?? 7;
+  const offlineUntil = new Date(
+    Math.min(input.expiresAt.getTime(), issuedAt.getTime() + graceDays * 24 * 60 * 60 * 1000),
+  );
   const payload: LicensePayload = {
     v: LICENSE_FORMAT_VERSION,
     licenseKey: input.licenseKey,
     tenantId: input.tenantId,
     restaurantName: input.restaurantName,
     hardwareId: input.hardwareId,
-    issuedAt: new Date().toISOString(),
+    issuedAt: issuedAt.toISOString(),
     expiresAt: input.expiresAt.toISOString(),
-    graceDays: input.graceDays ?? 7,
+    entitlement: input.entitlement ?? 'active',
+    offlineUntil: offlineUntil.toISOString(),
+    graceDays,
     features: input.features ?? [],
   };
 

@@ -150,7 +150,9 @@ export const orderService = {
     const menuItemMap = new Map(menuItems.map((mi) => [mi.id, mi]));
 
     // Check if an active order already exists for this table
-    let existingOrder = null;
+    // Tip acikca yazilir: strictNullChecks altinda `= null` baslangici tek
+    // basina `null` tipine cozulur ve sonraki atama hata verir.
+    let existingOrder: Awaited<ReturnType<typeof prisma.order.findFirst>> = null;
     if (data.tableId && data.type !== 'TAKEAWAY') {
       existingOrder = await prisma.order.findFirst({
         where: {
@@ -163,6 +165,10 @@ export const orderService = {
     }
 
     if (existingOrder) {
+      // `const`'a alinir: `let` uzerindeki daraltma asagidaki transaction
+      // geri cagirmasi icinde kaybolur, boylece `!` kullanmaya gerek kalmaz.
+      const activeOrder = existingOrder;
+
       // Append items to existing order
       let totalAddedAmount = 0;
       const newItemIds: string[] = [];
@@ -201,7 +207,7 @@ export const orderService = {
 
           const createdSubCheck = await tx.subCheck.create({
             data: {
-              orderId: existingOrder!.id,
+              orderId: activeOrder.id,
               label: sc.label,
               subtotal: subCheckTotal,
               items: { create: items }
@@ -212,7 +218,7 @@ export const orderService = {
         }
 
         const persistedOrder = await tx.order.update({
-          where: { id: existingOrder!.id },
+          where: { id: activeOrder.id },
           data: {
             totalAmount: { increment: totalAddedAmount },
             grandTotal: { increment: totalAddedAmount },
@@ -227,7 +233,7 @@ export const orderService = {
         return { ...persistedOrder, newItemIds };
       });
 
-      logger.info(`Appended items to existing order: ${existingOrder.orderNumber}`);
+      logger.info(`Appended items to existing order: ${activeOrder.orderNumber}`);
       return updatedOrder;
     }
 

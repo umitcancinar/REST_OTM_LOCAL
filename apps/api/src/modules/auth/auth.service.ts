@@ -209,11 +209,13 @@ export const authService = {
       where: { tenantId: tenant.id, isActive: true, pin: { not: null } },
     });
 
-    let matchedUser = null;
+    // Tip acikca yazilir: strictNullChecks altinda `= null` baslangici tek
+    // basina `null` tipine cozulur ve sonraki atama hata verir.
+    let matchedUser: (typeof users)[number] | null = null;
     for (const u of users) {
       if (u.pin) {
         // Only allow bcrypt-hashed PINs in production
-        const isMatch = u.pin.startsWith('$2') 
+        const isMatch = u.pin.startsWith('$2')
           ? await bcrypt.compare(input.pin, u.pin)
           : (env.isDev ? u.pin === input.pin : false);
         if (isMatch) { matchedUser = u; break; }
@@ -509,7 +511,8 @@ export const authService = {
       select: { id: true, name: true, role: true, tenantId: true, pin: true }
     });
 
-    let matchedUser = null;
+    // Tip acikca yazilir: bkz. pinLogin icindeki ayni desen.
+    let matchedUser: (typeof users)[number] | null = null;
     for (const u of users) {
       if (u.pin) {
         // Only allow bcrypt-hashed PINs in production

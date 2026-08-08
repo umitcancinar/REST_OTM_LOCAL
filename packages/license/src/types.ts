@@ -8,7 +8,13 @@
 
 /** Lisans formati surumu. Alan eklenirse artirilir; eski istemciler
  *  anlamadiklari surumu reddeder, yanlis yorumlamaz. */
-export const LICENSE_FORMAT_VERSION = 1;
+export const LICENSE_FORMAT_VERSION = 2;
+
+export type LicenseEntitlement =
+  | 'active'
+  | 'suspended'
+  | 'revoked'
+  | 'tenant_disabled';
 
 export interface LicensePayload {
   /** Format surumu — ileri uyumluluk kontrolu icin. */
@@ -33,6 +39,12 @@ export interface LicensePayload {
 
   /** Uyeligin bitis ani (ISO 8601). Bu tarihten sonra sistem kilitlenir. */
   expiresAt: string;
+
+  /** Bulutun son yoklamada verdigi yetki durumu. */
+  entitlement: LicenseEntitlement;
+
+  /** Internet olmadan calisilabilecek imzali son an. expiresAt'i asmaz. */
+  offlineUntil: string;
 
   /**
    * Internet kesildiginde kac gun calismaya devam edecegi.
@@ -67,6 +79,8 @@ export type LicenseStatus =
   | { state: 'expired'; license: LicensePayload; expiredSince: Date }
   /** Cevrimdisi tolerans suresi de dolmus — yoklama sart. */
   | { state: 'grace_exceeded'; license: LicensePayload; lastSeen: Date }
+  /** Bulut lisansi veya tenant'i acikca devre disi birakmis. */
+  | { state: 'license_disabled'; license: LicensePayload; entitlement: LicenseEntitlement }
   /** Baska bir makineye ait lisans. */
   | { state: 'hardware_mismatch'; expected: string; actual: string }
   /** Imza gecersiz — kurcalanmis veya sahte. */

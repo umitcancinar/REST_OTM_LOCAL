@@ -10,3 +10,4 @@
 export * from './types';
 export * from './verify';
 export * from './hardware';
+export * from './client';
