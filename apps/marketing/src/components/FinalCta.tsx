@@ -18,7 +18,7 @@ export function FinalCta() {
       />
       <div className="container-shell flex flex-col items-center text-center">
         <motion.h2
-          initial={reduced ? undefined : { opacity: 0, y: 18 }}
+          initial={false}
           whileInView={reduced ? undefined : { opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.5, ease: EASE_OUT }}
@@ -27,7 +27,7 @@ export function FinalCta() {
           Restoranınızı internetten <span className="text-accent">bağımsızlaştırın.</span>
         </motion.h2>
         <motion.p
-          initial={reduced ? undefined : { opacity: 0, y: 18 }}
+          initial={false}
           whileInView={reduced ? undefined : { opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.5, ease: EASE_OUT, delay: 0.08 }}
@@ -36,7 +36,7 @@ export function FinalCta() {
           Kısa bir görüşmede sisteminizi birlikte inceleyelim.
         </motion.p>
         <motion.a
-          initial={reduced ? undefined : { opacity: 0, y: 18 }}
+          initial={false}
           whileInView={reduced ? undefined : { opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.5, ease: EASE_OUT, delay: 0.16 }}

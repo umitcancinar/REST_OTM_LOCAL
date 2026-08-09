@@ -36,6 +36,12 @@ ağdaki garson telefonlarına ve yazıcılara hizmet veren profesyonel REST_OTM.
 - `DÜZELTİLDİ` Tanıtım sayfasının Google Fonts'a bağlı production build'i ağ
   erişimi yokken kırılabiliyordu. Harici font isteği kaldırıldı; sistem font
   stack'i ile ilk yükleme ve Render build'i ağdan bağımsız hale geldi.
+- `DÜZELTİLDİ` Marketing deploy'u için local ürünün standalone paketleme
+  yaklaşımı kaldırıldı. Render artık standart Next build/start akışını
+  kullanıyor; static dosya kopyalama ve platforma özel host workaround'ı yok.
+- `DÜZELTİLDİ` Motion başlangıç durumları, JavaScript gecikse veya çalışmasa
+  dahi metni gizlemeyecek şekilde progressive enhancement ilkesine göre
+  düzenlendi.
 - `GEÇTİ` Marketing production build, lint ve typecheck; kök monorepo
   typecheck'i (12 proje) ve değişen LAN gateway güvenlik sözleşmesi 5/5 test
   ile tekrar doğrulandı.

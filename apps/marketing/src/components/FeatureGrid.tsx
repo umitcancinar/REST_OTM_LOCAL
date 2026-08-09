@@ -82,7 +82,7 @@ export function FeatureGrid() {
           {FEATURES.map((f, i) => (
             <motion.div
               key={f.title}
-              initial={reduced ? undefined : { opacity: 0, y: 20 }}
+              initial={false}
               whileInView={reduced ? undefined : { opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-40px" }}
               transition={{
@@ -123,7 +123,7 @@ export function SectionHeading({
   const reduced = useReducedMotion();
   return (
     <motion.div
-      initial={reduced ? undefined : { opacity: 0, y: 18 }}
+      initial={false}
       whileInView={reduced ? undefined : { opacity: 1, y: 0 }}
       viewport={{ once: true }}
       transition={{ duration: 0.5, ease: EASE_OUT }}

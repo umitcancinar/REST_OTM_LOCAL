@@ -17,7 +17,6 @@ export function Hero() {
     reduced
       ? {}
       : {
-          initial: { opacity: 0, y: 22 },
           animate: { opacity: 1, y: 0 },
           transition: { duration: 0.55, ease: easeOut, delay },
         };
@@ -118,7 +117,7 @@ export function Hero() {
         </div>
 
         <motion.div
-          initial={reduced ? undefined : { opacity: 0, scale: 0.94 }}
+          initial={false}
           animate={reduced ? undefined : { opacity: 1, scale: 1 }}
           transition={{ duration: 0.7, ease: easeOut, delay: 0.1 }}
         >
