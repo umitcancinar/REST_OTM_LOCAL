@@ -45,24 +45,33 @@ export function DeviceCluster() {
         viewBox="0 0 400 320"
         fill="none"
       >
-        <line
+        <motion.line
           x1="200" y1="18" x2="200" y2="96"
-          stroke="hsl(var(--accent) / 0.4)" strokeWidth="1.5" strokeDasharray="3 5"
+          stroke="hsl(var(--accent) / 0.45)" strokeWidth="1.5" strokeDasharray="3 5"
+          initial={false}
+          animate={reduced ? undefined : { strokeDashoffset: [0, -32] }}
+          transition={{ duration: 1.8, repeat: Infinity, ease: "linear" }}
         />
-        <line
+        <motion.line
           x1="200" y1="180" x2="330" y2="120"
           stroke="white" strokeOpacity="0.14" strokeWidth="1.5" strokeDasharray="3 5"
+          initial={false}
+          animate={reduced ? undefined : { strokeDashoffset: [0, -32] }}
+          transition={{ duration: 2.6, repeat: Infinity, ease: "linear", delay: 0.35 }}
         />
-        <line
+        <motion.line
           x1="200" y1="200" x2="90" y2="250"
           stroke="white" strokeOpacity="0.14" strokeWidth="1.5" strokeDasharray="3 5"
+          initial={false}
+          animate={reduced ? undefined : { strokeDashoffset: [0, -32] }}
+          transition={{ duration: 2.6, repeat: Infinity, ease: "linear", delay: 0.9 }}
         />
       </svg>
 
       {/* Ana panel — kasa/patron ekranı, soyut şema */}
       <motion.div
         {...float(0)}
-        className="absolute left-1/2 top-[92px] z-10 w-[76%] -translate-x-1/2 overflow-hidden rounded-lg border border-white/12 bg-night-2 shadow-[0_40px_90px_-40px_rgba(0,0,0,0.7)]"
+        className="panel-shimmer absolute left-1/2 top-[92px] z-10 w-[76%] -translate-x-1/2 overflow-hidden rounded-lg border border-white/12 bg-night-2 shadow-[0_40px_90px_-40px_rgba(0,0,0,0.7)]"
       >
         <div className="flex items-center gap-1.5 border-b border-white/10 px-4 py-2.5">
           <span className="h-2 w-2 rounded-full bg-white/20" />
@@ -72,6 +81,7 @@ export function DeviceCluster() {
             kasa · yerel sunucu
           </span>
           <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 text-[9px] font-bold text-accent">
+            <span className="signal-dot h-1.5 w-1.5 rounded-full bg-accent" />
             <Wifi size={10} /> çevrimiçi
           </span>
         </div>

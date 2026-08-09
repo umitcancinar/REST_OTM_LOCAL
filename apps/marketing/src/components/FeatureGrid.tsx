@@ -90,7 +90,7 @@ export function FeatureGrid() {
                 ease: EASE_OUT,
                 delay: (i % 4) * 0.06,
               }}
-              className={`group rounded-lg border border-line bg-surface p-6 transition-colors hover:border-accent/40 ${
+              className={`surface-lift group rounded-lg border border-line bg-surface p-6 transition-colors hover:border-accent/40 ${
                 f.big ? "sm:col-span-1 lg:col-span-2" : ""
               }`}
             >

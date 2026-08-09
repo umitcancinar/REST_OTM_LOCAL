@@ -29,13 +29,8 @@ export function Hero() {
     >
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 -z-20 opacity-[0.05]"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgba(255,255,255,.9) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.9) 1px, transparent 1px)",
-          backgroundSize: "72px 72px",
-          maskImage: "linear-gradient(180deg, black, transparent 78%)",
-        }}
+        className="hero-grid pointer-events-none absolute inset-0 -z-20 opacity-[0.62]"
+        style={{ maskImage: "linear-gradient(180deg, black, transparent 78%)" }}
       />
       <div
         aria-hidden
@@ -45,6 +40,22 @@ export function Hero() {
             "radial-gradient(circle, hsl(var(--accent) / 0.35), hsl(var(--accent) / 0.08) 45%, transparent 72%)",
         }}
       />
+      {!reduced && (
+        <>
+          <div
+            aria-hidden
+            className="hero-orbit pointer-events-none absolute -right-24 top-1/2 -z-10 h-[520px] w-[520px] -translate-y-1/2 rounded-full border border-white/[0.075]"
+          >
+            <span className="absolute -left-1 top-1/2 h-2 w-2 rounded-full bg-accent shadow-[0_0_18px_hsl(var(--accent)/0.8)]" />
+          </div>
+          <div
+            aria-hidden
+            className="hero-orbit-reverse pointer-events-none absolute -right-8 top-1/2 -z-10 h-[360px] w-[360px] -translate-y-1/2 rounded-full border border-white/[0.055]"
+          >
+            <span className="absolute left-1/2 top-0 h-1.5 w-1.5 rounded-full bg-white/70" />
+          </div>
+        </>
+      )}
 
       <div className="container-shell grid items-center gap-16 lg:grid-cols-[1.05fr_0.95fr] lg:gap-10">
         <div>
@@ -52,7 +63,7 @@ export function Hero() {
             {...enter(0)}
             className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.04] px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-white/70"
           >
-            <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_0_5px_hsl(var(--accent)/0.18)]" />
+            <span className="signal-dot h-1.5 w-1.5 rounded-full bg-accent" />
             Yerel-öncelikli restoran otomasyonu
           </motion.div>
 
@@ -95,7 +106,7 @@ export function Hero() {
 
           <motion.div
             {...enter(0.32)}
-            className="mt-11 flex flex-wrap items-center gap-x-8 gap-y-3 border-t border-white/10 pt-6 text-[12px] font-semibold text-white/45"
+            className="panel-shimmer mt-11 flex flex-wrap items-center gap-x-8 gap-y-3 overflow-hidden rounded-md border border-white/10 bg-white/[0.025] px-4 py-3.5 text-[12px] font-semibold text-white/50"
           >
             <span className="inline-flex items-center gap-1.5">
               <WifiOff size={14} /> 7 gün çevrimdışı çalışma toleransı

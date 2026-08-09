@@ -12,10 +12,12 @@ import { DemoSection } from "@/components/DemoSection";
 import { FAQ } from "@/components/FAQ";
 import { FinalCta } from "@/components/FinalCta";
 import { Footer } from "@/components/Footer";
+import { ScrollProgress } from "@/components/ScrollProgress";
 
 export default function Home() {
   return (
     <main>
+      <ScrollProgress />
       <Nav />
       <Hero />
       <ProblemBand />

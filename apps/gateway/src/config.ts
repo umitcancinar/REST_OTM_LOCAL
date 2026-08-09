@@ -1,4 +1,5 @@
 import { isIP } from 'node:net';
+import { networkInterfaces, type NetworkInterfaceInfo } from 'node:os';
 
 export type GatewayTargetName = 'api' | 'admin' | 'waiter' | 'menu';
 
@@ -117,6 +118,27 @@ export function isPrivateIpHost(hostname: string): boolean {
       || normalized.startsWith('feb')
       || normalized.startsWith('fc')
       || normalized.startsWith('fd');
+  }
+  return false;
+}
+
+/**
+ * IP fallback yalnız gateway bilgisayarının gerçekten sahip olduğu LAN adresi
+ * için geçerlidir. Her RFC1918 Host'u kabul etmek, upstream'e aktarılmış Host
+ * bilgisi üzerinden host-header poisoning yüzeyi yaratır.
+ */
+export function isLocalPrivateIpHost(
+  hostname: string,
+  interfaces: NodeJS.Dict<NetworkInterfaceInfo[]> = networkInterfaces(),
+): boolean {
+  const normalized = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (!isPrivateIpHost(normalized)) return false;
+  for (const entries of Object.values(interfaces)) {
+    for (const entry of entries ?? []) {
+      if (entry.internal) continue;
+      const address = entry.address.split('%', 1)[0]?.toLowerCase();
+      if (address === normalized) return true;
+    }
   }
   return false;
 }

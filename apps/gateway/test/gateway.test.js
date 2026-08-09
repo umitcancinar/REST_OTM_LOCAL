@@ -4,7 +4,7 @@ const net = require('node:net');
 const { EventEmitter } = require('node:events');
 const test = require('node:test');
 const { createGatewayServer, classifyGatewayRoute } = require('../dist/gateway.js');
-const { loadGatewayConfig, normalizeMdnsHostname } = require('../dist/config.js');
+const { loadGatewayConfig, normalizeMdnsHostname, isLocalPrivateIpHost } = require('../dist/config.js');
 const {
   buildMdnsAnnouncement,
   buildMdnsProbe,
@@ -84,6 +84,20 @@ test('production config yalniz loopback upstream ve acik host allowlist kabul ed
     GATEWAY_MDNS_HOSTNAME: 'restotm-other.local',
   }), /GATEWAY_ALLOWED_HOSTS/);
   assert.throws(() => normalizeMdnsHostname('tenant-name.example.com'), /\.local/);
+});
+
+test('IP fallback sadece gateway makinesinin kendi private adresini kabul eder', () => {
+  const interfaces = {
+    ethernet: [
+      { address: '192.168.50.10', family: 'IPv4', internal: false },
+      { address: 'fd12:3456::10', family: 'IPv6', internal: false },
+    ],
+  };
+  assert.equal(isLocalPrivateIpHost('192.168.50.10', interfaces), true);
+  assert.equal(isLocalPrivateIpHost('fd12:3456::10', interfaces), true);
+  assert.equal(isLocalPrivateIpHost('192.168.50.11', interfaces), false);
+  assert.equal(isLocalPrivateIpHost('10.20.30.40', interfaces), false);
+  assert.equal(isLocalPrivateIpHost('8.8.8.8', interfaces), false);
 });
 
 test('gateway HTTP isteklerini sabit loopback upstreamlere yollar ve spoofed forwarding headerlarini ezer', async (t) => {

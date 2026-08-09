@@ -16,7 +16,7 @@ export function ProblemBand() {
           transition={{ duration: 0.55, ease: EASE_OUT }}
           className="text-balance-pretty mx-auto max-w-[26ch] text-center font-display text-[26px] font-semibold leading-[1.25] tracking-[-0.01em] text-ink sm:text-[32px]"
         >
-          Bulut tabanlı bir POS'un interneti giderse{" "}
+          Bulut tabanlı bir POS&apos;un interneti giderse{" "}
           <span className="text-accent">kasanız da durur.</span>
         </motion.p>
         <motion.p
@@ -26,7 +26,7 @@ export function ProblemBand() {
           transition={{ duration: 0.55, ease: EASE_OUT, delay: 0.1 }}
           className="mx-auto mt-5 max-w-[52ch] text-center text-[15px] leading-relaxed text-muted"
         >
-          REST_OTM'de sipariş almak, mutfağa yazdırmak ve kasayı kapatmak hiçbir
+          REST_OTM&apos;de sipariş almak, mutfağa yazdırmak ve kasayı kapatmak hiçbir
           zaman internete muhtaç değildir — çünkü bu işlemlerin hiçbiri buluta
           gitmez. Bulut yalnızca lisansınızı doğrular ve ortak menünüzü günceller.
         </motion.p>

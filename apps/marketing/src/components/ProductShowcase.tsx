@@ -161,19 +161,33 @@ export function ProductShowcase() {
               key={t.key}
               type="button"
               onClick={() => setActive(t.key)}
-              className={`inline-flex items-center gap-2 rounded-full border px-4 py-2.5 text-[12.5px] font-bold transition ${
+              aria-pressed={active === t.key}
+              className={`relative inline-flex items-center gap-2 overflow-hidden rounded-full border px-4 py-2.5 text-[12.5px] font-bold transition ${
                 active === t.key
                   ? "border-accent bg-accent/15 text-white"
                   : "border-white/12 bg-white/[0.03] text-white/55 hover:text-white/80"
               }`}
             >
-              <t.icon size={14} strokeWidth={2} />
-              {t.label}
+              {active === t.key && !reduced && (
+                <motion.span
+                  layoutId="product-showcase-active-tab"
+                  className="absolute inset-0 bg-accent/10"
+                  transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                />
+              )}
+              <span className="relative z-10 inline-flex items-center gap-2">
+                <t.icon size={14} strokeWidth={2} />
+                {t.label}
+              </span>
             </button>
           ))}
         </div>
 
-        <div className="mt-6 overflow-hidden rounded-lg border border-white/12 bg-night-2 shadow-[0_50px_100px_-50px_rgba(0,0,0,0.8)]">
+        <motion.div
+          whileHover={reduced ? undefined : { y: -3 }}
+          transition={{ duration: 0.28, ease: EASE_OUT }}
+          className="panel-shimmer mt-6 overflow-hidden rounded-lg border border-white/12 bg-night-2 shadow-[0_50px_100px_-50px_rgba(0,0,0,0.8)]"
+        >
           <div className="flex items-center gap-1.5 border-b border-white/10 px-4 py-3">
             <span className="h-2 w-2 rounded-full bg-white/20" />
             <span className="h-2 w-2 rounded-full bg-white/20" />
@@ -198,7 +212,7 @@ export function ProductShowcase() {
               </motion.div>
             </AnimatePresence>
           </div>
-        </div>
+        </motion.div>
         <p className="mt-4 text-[11.5px] text-white/35">
           Yukarıdaki veriler örnek amaçlıdır; gerçek arayüz kurulumunuzda kendi menü ve masa
           düzeninizle çalışır.

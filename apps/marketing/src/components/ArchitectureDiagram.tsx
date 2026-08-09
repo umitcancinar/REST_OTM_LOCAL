@@ -84,7 +84,12 @@ export function ArchitectureDiagram() {
             <span className="hidden text-[10px] font-bold uppercase tracking-[0.1em] text-white/35 lg:block">
               saatlik
             </span>
-            <ArrowRight size={18} className="rotate-90 text-white/25 lg:rotate-0" />
+            <motion.div
+              animate={reduced ? undefined : { x: [0, 5, 0], opacity: [0.3, 0.85, 0.3] }}
+              transition={{ duration: 2.1, repeat: Infinity, ease: "easeInOut" }}
+            >
+              <ArrowRight size={18} className="rotate-90 text-white/25 lg:rotate-0" />
+            </motion.div>
             <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-white/35">
               yoklama
             </span>
