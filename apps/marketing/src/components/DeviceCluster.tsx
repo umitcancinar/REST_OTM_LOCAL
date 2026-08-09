@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, useReducedMotion } from "motion/react";
-import { Printer, Smartphone, Cloud, Wifi } from "lucide-react";
+import { Printer, Smartphone, Cloud, Wifi, Clock3, UtensilsCrossed } from "lucide-react";
 
 /**
  * Hero'daki mimari gorseli. Gercek bir ekran goruntusu DEGIL — bilerek
@@ -85,26 +85,20 @@ export function DeviceCluster() {
             <Wifi size={10} /> çevrimiçi
           </span>
         </div>
-        <div className="grid grid-cols-5 gap-2 p-4">
-          <div className="col-span-2 space-y-2">
-            {[62, 84, 48, 70].map((w, i) => (
-              <div
-                key={i}
-                className="h-6 rounded bg-white/[0.06]"
-                style={{ width: `${w}%` }}
-              />
-            ))}
+        <div className="p-4">
+          <div className="grid grid-cols-2 gap-2 border-b border-white/10 pb-3">
+            <div className="rounded-md bg-white/[0.055] px-2.5 py-2"><span className="block text-[8.5px] font-bold uppercase tracking-[0.1em] text-white/35">Açık masa</span><span className="mt-1 block text-[15px] font-bold text-white">07 <span className="text-[9px] font-medium text-white/35">/ 12</span></span></div>
+            <div className="rounded-md bg-accent/10 px-2.5 py-2"><span className="block text-[8.5px] font-bold uppercase tracking-[0.1em] text-accent/75">Mutfakta</span><span className="mt-1 block text-[15px] font-bold text-white">04 <span className="text-[9px] font-medium text-white/45">sipariş</span></span></div>
           </div>
-          <div className="col-span-3 grid grid-cols-3 gap-2">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div
-                key={i}
-                className={`aspect-square rounded ${
-                  i === 1 || i === 4 ? "bg-accent/25" : "bg-white/[0.06]"
-                }`}
-              />
-            ))}
+          <div className="mt-3 grid grid-cols-[1.35fr_1fr] gap-2">
+            <div className="space-y-1.5">
+              {["Masa 5 · Adana Kebap", "Masa 3 · Izgara Köfte", "Masa 7 · Ayran"].map((order, index) => <div key={order} className="flex items-center gap-1.5 rounded bg-white/[0.045] px-2 py-1.5"><span className={`h-1.5 w-1.5 rounded-full ${index === 2 ? "bg-emerald-300" : "bg-accent"}`} /><span className="truncate text-[8.5px] font-semibold text-white/70">{order}</span></div>)}
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {[1, 2, 3, 4, 5, 6].map((table) => <div key={table} className={`grid aspect-square place-items-center rounded text-[9px] font-bold ${table === 1 || table === 4 ? "bg-accent/30 text-accent" : table === 5 ? "bg-emerald-400/20 text-emerald-300" : "bg-white/[0.06] text-white/45"}`}>{table}</div>)}
+            </div>
           </div>
+          <div className="mt-3 flex items-center justify-between rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-[8.5px] font-semibold text-white/45"><span className="inline-flex items-center gap-1"><Clock3 size={10} /> Son sipariş 18 sn önce</span><span className="inline-flex items-center gap-1 text-emerald-300"><UtensilsCrossed size={10} /> 1 hazır</span></div>
         </div>
       </motion.div>
 

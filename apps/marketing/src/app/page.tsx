@@ -14,7 +14,9 @@ import { FinalCta } from "@/components/FinalCta";
 import { Footer } from "@/components/Footer";
 import { ScrollProgress } from "@/components/ScrollProgress";
 
-export default function Home() {
+export default async function Home({ searchParams }: { searchParams: Promise<{ demo?: string; message?: string }> }) {
+  const params = await searchParams;
+  const demoStage = params.demo === "verify" || params.demo === "success" || params.demo === "error" ? params.demo : "form";
   return (
     <main>
       <ScrollProgress />
@@ -28,7 +30,7 @@ export default function Home() {
       <SecuritySection />
       <PackagesSection />
       <TrustSection />
-      <DemoSection />
+      <DemoSection stage={demoStage} message={params.message} />
       <FAQ />
       <FinalCta />
       <Footer />

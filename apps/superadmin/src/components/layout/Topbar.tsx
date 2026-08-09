@@ -57,13 +57,12 @@ export default function Topbar() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
+  const handleLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
     localStorage.removeItem('user');
     localStorage.removeItem('impersonatedTenantId');
     localStorage.removeItem('impersonatedTenantName');
-    router.push('/');
+    router.replace('/');
   };
 
   return (

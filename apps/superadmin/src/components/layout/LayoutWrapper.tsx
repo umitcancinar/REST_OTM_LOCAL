@@ -38,8 +38,6 @@ export default function LayoutWrapper({ children }: { children: React.ReactNode 
       if (user.role === 'WAITER') {
         // Waiters shouldn't be here at all. Clear storage and kick out.
         localStorage.removeItem('user');
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
         router.push('/');
         return;
       }

@@ -30,10 +30,10 @@ export const publicCmsLimiter = rateLimit({
   },
 });
 
-/** Auth endpoints — stricter: 10 attempts per 15 minutes */
+/** Auth endpoints — strict: five attempts per IP / 15 minutes. */
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 5,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
