@@ -1,7 +1,7 @@
 import http, { type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { GatewayConfig, GatewayTarget, GatewayTargetName } from './config';
-import { isPrivateIpHost } from './config';
+import { isLocalPrivateIpHost } from './config';
 import type { MdnsStatus } from './mdns';
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -68,7 +68,7 @@ function requestHost(request: IncomingMessage, config: GatewayConfig): AcceptedH
   const accepted = hostFromHeader(rawHost);
   if (!accepted) return undefined;
   if (config.allowedHosts.has(accepted.hostname)) return accepted;
-  if (config.allowPrivateIpHosts && isPrivateIpHost(accepted.hostname)) return accepted;
+  if (config.allowPrivateIpHosts && isLocalPrivateIpHost(accepted.hostname)) return accepted;
   return undefined;
 }
 

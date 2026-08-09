@@ -3,7 +3,7 @@
 Bu dosya aktif devir günlüğüdür. Her çalışma turunda güncellenir. Bir madde
 yalnız kodu, testi ve gerekli kabul kontrolü tamamlandığında `BİTTİ` olur.
 
-Son güncelleme: 08.08.2026
+Son güncelleme: 09.08.2026
 
 ## Nihai hedef
 
@@ -13,6 +13,44 @@ uygulama penceresi kapansa bile Windows service olarak çalışan; aynı yerel
 ağdaki garson telefonlarına ve yazıcılara hizmet veren profesyonel REST_OTM.
 
 ## Bu turda yaptım
+
+### 09.08.2026 bağımsız kod denetimi
+
+- `GEÇTİ` Temiz çalışma ağacındaki local-first commit bağımsız olarak tekrar
+  denetlendi: 12 workspace typecheck, API 118/118, license 16/16, menu 4/4,
+  waiter 1/1, release 20/20, Windows packaging 16/16 ve Rust kaynak politikası
+  11/11 geçti. Prisma şeması valid; gerçek staged artifact audit'i local 108 ve
+  cloud 54 dosya ile fail-closed geçti.
+- `DÜZELTİLDİ` LAN gateway IP fallback'i önceden herhangi bir RFC1918 Host
+  header'ını kabul edebiliyordu. Artık yalnız gateway bilgisayarının mevcut ağ
+  arabirimlerinde gerçekten bulunan private/link-local IP kabul ediliyor; sahte
+  Host/X-Forwarded-Host poisoning yüzeyi kapandı.
+- `DÜZELTİLDİ` GitHub CI; gateway, menu/waiter route kontratları, Windows/Rust
+  statik sözleşmesi, gerçek release stage+audit ve admin/waiter/superadmin ile
+  iki menu production build'ini de koşacak şekilde genişletildi.
+- `BİTTİ` Tanıtım sitesi, mevcut içerik ve ürün dilini koruyarak hareketli
+  operasyon katmanlarıyla güçlendirildi: scroll ilerleme çizgisi, canlı ağ
+  sinyalleri, cihazlar arası veri akışı, yumuşak kart etkileşimleri ve ürün
+  panel geçişleri eklendi. `prefers-reduced-motion` seçen kullanıcıda tüm
+  hareketler güvenli biçimde duruyor.
+- `DÜZELTİLDİ` Tanıtım sayfasının Google Fonts'a bağlı production build'i ağ
+  erişimi yokken kırılabiliyordu. Harici font isteği kaldırıldı; sistem font
+  stack'i ile ilk yükleme ve Render build'i ağdan bağımsız hale geldi.
+- `GEÇTİ` Marketing production build, lint ve typecheck; kök monorepo
+  typecheck'i (12 proje) ve değişen LAN gateway güvenlik sözleşmesi 5/5 test
+  ile tekrar doğrulandı.
+- `AÇIK ÜRETİM KAPISI` `https://restoranyonetim.com/` görsel kontrol sırasında
+  bağlantı kabul etmedi. Kod production build'inden geçiyor; Render servisinin
+  yayın durumu, environment değişkenleri ve custom domain DNS/SSL eşlemesi
+  yayımdan önce ayrı kontrol edilmeli.
+- `AÇIK ÜRETİM KAPISI` Bu Mac'te Rust/MSVC, PowerShell, WiX ve Authenticode
+  araçları yok. Native kaynak ve installer sözleşmesi test edildi; ancak temiz
+  Windows 11 VM'de gerçek derleme/kurulum/rollback/SCM/DPAPI/DACL kabulü olmadan
+  müşteri installer'ı "hazır" sayılamaz.
+- `AÇIK ÜRETİM KAPISI` LAN gateway HTTP çalışıyor. Telefonlarda profesyonel PWA
+  ve Wi-Fi'da parola/oturum gizliliği için yerel güvenilir HTTPS sertifika
+  dağıtım stratejisi (yönetilen müşteri DNS + ACME veya cihazlara kurulan local
+  CA/pinned native wrapper) seçilip saha kabulünden geçmeli.
 
 ### Devir ve doğrulama
 
