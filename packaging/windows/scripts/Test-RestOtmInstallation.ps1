@@ -40,6 +40,7 @@ $expectedEndpoints = [ordered]@{
     api = @('127.0.0.1', 4100)
     admin = @('127.0.0.1', 3100)
     waiter = @('127.0.0.1', 3200)
+    menu = @('127.0.0.1', 3300)
     print_agent = @('127.0.0.1', 4300)
 }
 foreach ($entry in $expectedEndpoints.GetEnumerator()) {
@@ -60,8 +61,9 @@ $expectedChildren = [ordered]@{
     'local-api' = @('postgres')
     'admin-ui' = @('local-api')
     'waiter-ui' = @('local-api')
+    'menu-ui' = @('local-api')
     'print-agent' = @('local-api')
-    'lan-gateway' = @('local-api', 'admin-ui', 'waiter-ui')
+    'lan-gateway' = @('local-api', 'admin-ui', 'waiter-ui', 'menu-ui')
 }
 if ($runtimeConfig.children.Count -ne $expectedChildren.Count) {
     throw 'Canonical child process sayisi gecersiz.'
@@ -80,13 +82,25 @@ foreach ($entry in $expectedChildren.GetEnumerator()) {
 
 $apiChild = $runtimeConfig.children | Where-Object name -eq 'local-api' | Select-Object -First 1
 $postgresChild = $runtimeConfig.children | Where-Object name -eq 'postgres' | Select-Object -First 1
+$menuChild = $runtimeConfig.children | Where-Object name -eq 'menu-ui' | Select-Object -First 1
+$gatewayChild = $runtimeConfig.children | Where-Object name -eq 'lan-gateway' | Select-Object -First 1
 if ($apiChild.environment.BIND_HOST -ne '127.0.0.1' -or
     $apiChild.environment.PORT -ne '4100' -or
     $apiChild.file_environment.LOCAL_LICENSE_PUBLIC_KEY -ne (Join-Path $install 'config\license-public-key.pem') -or
     $apiChild.secret_environment.DATABASE_URL -ne 'databaseUrl' -or
+    $apiChild.secret_environment.TABLE_QR_SIGNING_SECRET -ne 'tableQrSigningSecret' -or
+    [string]::IsNullOrWhiteSpace([string]$apiChild.environment.LOCAL_LAN_HOSTNAME) -or
     $apiChild.shutdown.type -ne 'http' -or
     $apiChild.shutdown.token_secret -ne 'internalApiToken') {
     throw 'Local API canonical env/file/secret/shutdown contract gecersiz.'
+}
+if ($menuChild.environment.PORT -ne '3300' -or
+    $menuChild.environment.CLOUD_MENU_API_URL -notmatch '^https://[^?#]+/api$') {
+    throw 'Menu child loopback port/cloud HTTPS projection contract gecersiz.'
+}
+if ($gatewayChild.environment.GATEWAY_MENU_TARGET -ne 'http://127.0.0.1:3300' -or
+    [string]::IsNullOrWhiteSpace([string]$gatewayChild.environment.GATEWAY_ALLOWED_HOSTS)) {
+    throw 'Gateway menu upstream/allowed-host contract gecersiz.'
 }
 $postgresData = [string]$postgresChild.arguments[1]
 $backupPath = [string]$apiChild.environment.LOCAL_BACKUP_DIR
@@ -107,7 +121,8 @@ $secretProperties = @(
     'jwtAccessSecret',
     'jwtRefreshSecret',
     'backupEncryptionKey',
-    'gatewayControlSecret'
+    'gatewayControlSecret',
+    'tableQrSigningSecret'
 )
 foreach ($propertyName in $secretProperties) {
     $property = $secretConfig.values.PSObject.Properties[$propertyName]
@@ -146,7 +161,7 @@ if ($LASTEXITCODE -ne 0 -or $recovery -notmatch 'RESTART') {
     throw 'RESTOTMRuntime recovery/restart politikasi dogrulanamadi.'
 }
 
-$internalPorts = @(55432, 4100, 3100, 3200, 4300)
+$internalPorts = @(55432, 4100, 3100, 3200, 3300, 4300)
 foreach ($port in $internalPorts) {
     $listeners = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue
     foreach ($listener in $listeners) {
@@ -161,14 +176,24 @@ if (-not $gatewayListeners) {
     throw 'LAN gateway 8787 portunda dinlemiyor.'
 }
 
-$firewallName = 'RESTOTM LAN Gateway (Private LocalSubnet)'
-$firewallRule = Get-NetFirewallRule -DisplayName $firewallName -ErrorAction Stop
-$addressFilter = $firewallRule | Get-NetFirewallAddressFilter
-$portFilter = $firewallRule | Get-NetFirewallPortFilter
-if (([string]$firewallRule.Profile) -ne 'Private' -or
-    ([string]$addressFilter.RemoteAddress) -ne 'LocalSubnet' -or
-    ([string]$portFilter.LocalPort) -ne '8787') {
-    throw 'Firewall yalnizca Private + LocalSubnet + TCP/8787 olmali.'
+$firewallContracts = @(
+    [ordered]@{ Name = 'RESTOTM LAN Gateway (Private LocalSubnet)'; Direction = 'Inbound'; Protocol = 'TCP'; LocalPort = '8787'; RemotePort = 'Any' },
+    [ordered]@{ Name = 'RESTOTM mDNS Inbound (Private LocalSubnet)'; Direction = 'Inbound'; Protocol = 'UDP'; LocalPort = '5353'; RemotePort = '5353' },
+    [ordered]@{ Name = 'RESTOTM mDNS Outbound (Private LocalSubnet)'; Direction = 'Outbound'; Protocol = 'UDP'; LocalPort = '5353'; RemotePort = '5353' }
+)
+foreach ($contract in $firewallContracts) {
+    $firewallRule = Get-NetFirewallRule -DisplayName $contract.Name -ErrorAction Stop
+    $addressFilter = $firewallRule | Get-NetFirewallAddressFilter
+    $portFilter = $firewallRule | Get-NetFirewallPortFilter
+    if (([string]$firewallRule.Profile) -ne 'Private' -or
+        ([string]$firewallRule.Direction) -ne $contract.Direction -or
+        ([string]$firewallRule.Action) -ne 'Allow' -or
+        ([string]$addressFilter.RemoteAddress) -ne 'LocalSubnet' -or
+        ([string]$portFilter.Protocol) -ne $contract.Protocol -or
+        ([string]$portFilter.LocalPort) -ne $contract.LocalPort -or
+        ([string]$portFilter.RemotePort) -ne $contract.RemotePort) {
+        throw "Firewall dar Private/LocalSubnet contract ile uyusmuyor: $($contract.Name)"
+    }
 }
 
 [pscustomobject]@{

@@ -54,6 +54,18 @@ test('local artifact cloud imzalama ve license-admin kodunda fail eder', async (
   assert.ok(result.findings.some(({ code }) => code === 'forbidden-local-content'));
 });
 
+test('local artifact cloud update publisher ve update signing secretinde fail eder', async () => {
+  const root = await fixture({
+    'api/local.js': 'require("./modules/cloud-update/cloud-update.publisher");',
+    'api/modules/cloud-update/cloud-update.publisher.js': 'sign(payload, UPDATE_SIGNING_PRIVATE_KEY);',
+  });
+
+  const result = await auditArtifact({ profile: 'local', root });
+  assert.equal(result.ok, false);
+  assert.ok(result.findings.some(({ code }) => code === 'forbidden-local-path'));
+  assert.ok(result.findings.some(({ code }) => code === 'forbidden-local-content'));
+});
+
 test('buyuk bundle sonundaki yasak import da taranir', async () => {
   const root = await fixture({
     'api/local.js': `${'const harmless = 1;\n'.repeat(5_000)}require("@rest-otm/license/sign");`,
@@ -75,6 +87,21 @@ test('cloud artifact local operasyon, websocket ve print bagimliliklarinda fail 
   assert.equal(result.ok, false);
   assert.ok(result.findings.some(({ code }) => code === 'forbidden-cloud-path'));
   assert.ok(result.findings.some(({ code }) => code === 'forbidden-cloud-content'));
+});
+
+test('cloud artifact local update contractini kabul eder ama downloader/runtime closureini reddeder', async () => {
+  const contractOnly = await fixture({
+    'api/cloud.js': 'require("./modules/local-update/local-update.contract");',
+    'api/modules/local-update/local-update.contract.js': 'module.exports = { schemaVersion: 1 };',
+  });
+  const leakedRuntime = await fixture({
+    'api/cloud.js': 'require("./modules/local-update/local-update.runtime");',
+    'api/modules/local-update/local-update.runtime.js': 'module.exports = { downloader: true };',
+  });
+  assert.equal((await auditArtifact({ profile: 'cloud', root: contractOnly })).ok, true);
+  const rejected = await auditArtifact({ profile: 'cloud', root: leakedRuntime });
+  assert.equal(rejected.ok, false);
+  assert.ok(rejected.findings.some(({ code }) => code === 'forbidden-cloud-path'));
 });
 
 test('public projection yonleri iki artifact arasinda karisamaz', async () => {

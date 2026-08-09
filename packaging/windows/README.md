@@ -10,6 +10,7 @@ Bu klasor, musteri bilgisayarinda calisacak RESTOTM yerel runtime'i icin guvenli
 | Local API | `127.0.0.1:4100` | Yok |
 | Admin UI | `127.0.0.1:3100` | Yok |
 | Garson UI | `127.0.0.1:3200` | Yok |
+| QR Menü UI | `127.0.0.1:3300` | Yok |
 | Print agent | `127.0.0.1:4300` | Yok |
 | LAN gateway | `0.0.0.0:8787` | Yalniz Windows `Private` profil + `LocalSubnet` |
 | Program binary'leri | `%ProgramFiles%\RESTOTM` | Users: read/execute |
@@ -71,10 +72,10 @@ Manifest her dosyanin relative path, SHA-256, rol ve PE dosyalari icin Authentic
 
 - `runtime-service`, `installer-bootstrap`;
 - `postgres-server`, `postgres-client`;
-- `local-api`, `admin-ui`, `waiter-ui`, `print-agent`, `lan-gateway`;
+- `local-api`, `admin-ui`, `waiter-ui`, `menu-ui`, `print-agent`, `lan-gateway`;
 - `license-public-key` (yalniz Ed25519 public key; private key kesinlikle degil).
 
-`installer-contract.json`, Rust host ile ayni `restotm-windows-host-v1` snake_case semasini; exact child sirasi/dependency'leri, sabit portlari, `values` map'li DPAPI secret store'u ve hash/ACL policy bagli bootstrap receipt'i taahhut eder. Build, contract icinde `native_bootstrap.production_ready=true` ister ve helper'i `verify-production-contract --contract ...` capability probe'u ile calistirir. Mevcut foundation helper bu capability'yi sunmadigi ve provisioning icin exit 78 dondugu icin installer bilerek uretilemez. Build ayrica `.pdb`, source-map, TypeScript kaynaklari ve `.env*` dosyalarini reddeder.
+`installer-contract.json`, Rust host ile ayni `restotm-windows-host-v1` snake_case semasini; exact child sirasi/dependency'leri, sabit portlari, `values` map'li DPAPI secret store'u ve hash/ACL policy bagli bootstrap receipt'i taahhut eder. Build, contract icinde `native_bootstrap.production_ready=true` ister ve helper'i `verify-production-contract --contract ...` capability probe'u ile calistirir. Native kaynak backend strict Program Files/ProgramData siniri, reparse reddi, DPAPI LocalMachine, restricted service SID DACL'i ve atomik receipt-last rollback akisini uygular. Ancak ornek contract Windows derleme/VM kabulu yapilmadigi icin bilerek `production_ready=false` kalir ve installer uretilemez. Build ayrica `.pdb`, source-map, TypeScript kaynaklari ve `.env*` dosyalarini reddeder.
 
 Windows build makinesinde:
 
@@ -106,7 +107,7 @@ WiX v4/Burn secildi; Inno Setup pilotu eklenmedi. Windows Service, transactional
 | Servis kurtarma | Servisi kontrollu 3 kez crash et | 15/30/60 saniye politikasina gore geri gelir |
 | LAN erisimi | Private Wi-Fi telefon/tablet | `SUNUCU-IP:8787` acilir |
 | Public profil izolasyonu | Ag profilini Public yap | Gateway erisimi kapanir |
-| Ic port izolasyonu | Baska LAN cihazindan port scan | 55432/4100/3100/3200/4300 kapali |
+| Ic port izolasyonu | Baska LAN cihazindan port scan | 55432/4100/3100/3200/3300/4300 kapali |
 | PostgreSQL bind | `Test-RestOtmInstallation.ps1` | Yalniz 127.0.0.1/::1:55432 |
 | Secret korumasi | ACL + config testi | Plaintext secret yok; DPAPI envelope var |
 | Lisans | Activate/heartbeat/revoke/clock rollback | Tek cihaz, signed lease, revoke fail-closed |
@@ -116,9 +117,9 @@ WiX v4/Burn secildi; Inno Setup pilotu eklenmedi. Windows Service, transactional
 ## Su anki acik blocker'lar
 
 - Native `RESTOTMRuntime` kaynagi henuz Windows'ta derlenmedi, imzalanmadi ve clean-VM'de test edilmedi.
-- Native bootstrap ACL olusturma/dogrulama, DPAPI provisioning ve atomik rollback backend'i tamamlanmadi; helper exit 78 doner ve production capability probe'u yoktur.
+- Native bootstrap kaynak backend'i ve strict capability probe'u mevcut; fakat Windows MSVC derlemesi ile clean-VM DPAPI/DACL/reparse/rollback kabul testi yapilmadi. Bu nedenle release contract'i `production_ready=true` olamaz.
 - Sabitlenmis ve lisans kosullari dogrulanmis PostgreSQL Windows binary dagitimi yok.
-- API/admin/waiter/print ve LAN gateway Windows release artifact'leri ile tamamlanmis SHA-256 manifest yok.
+- API/admin/waiter/menu/print ve LAN gateway Windows release artifact'leri ile tamamlanmis SHA-256 manifest yok.
 - Local API `/internal/runtime/shutdown` bearer-token endpoint'i ve print-agent installation/tenant provisioning sozlesmesi tamamlanmadi.
 - EV/OV Authenticode sertifikasi ve guvenli CI signing ortami yok.
 - Windows 11 clean-install/upgrade/uninstall/power-loss test matrisi kosulmadi.

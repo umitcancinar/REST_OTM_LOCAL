@@ -28,7 +28,7 @@ function provider(interfaces) {
   return { getNetworkInterfaces: () => interfaces };
 }
 
-test('yalniz guvenli LAN adresleri deterministik listelenir ve interface/MAC sizmaz', () => {
+test('yalniz guvenli LAN adresleri deterministik listelenir ve interface/MAC sizmaz', async () => {
   const runtime = new LocalConnectivityRuntime('RestOtm-Kasa.local', provider({
     z_wifi: [
       address('192.168.1.20', 'IPv4'),
@@ -46,7 +46,7 @@ test('yalniz guvenli LAN adresleri deterministik listelenir ve interface/MAC siz
     ],
   }), { async toSvg() { return '<svg />'; } });
 
-  const status = runtime.getStatus();
+  const status = await runtime.getStatus();
   assert.equal(status.online, true);
   assert.equal(status.hostname, 'restotm-kasa.local');
   assert.equal(status.gatewayPort, LOCAL_GATEWAY_PORT);
@@ -70,12 +70,12 @@ test('yalniz guvenli LAN adresleri deterministik listelenir ve interface/MAC siz
   assert.equal(serialized.includes('netmask'), false);
 });
 
-test('ag yoksa public fallback yapmadan guvenli offline status doner', () => {
+test('ag yoksa public fallback yapmadan guvenli offline status doner', async () => {
   const runtime = new LocalConnectivityRuntime('restotm-kasa', provider({
     lo: [address('127.0.0.1', 'IPv4', { internal: true })],
     public: [address('203.0.113.5', 'IPv4')],
   }), { async toSvg() { return '<svg />'; } });
-  const status = runtime.getStatus();
+  const status = await runtime.getStatus();
   assert.equal(status.online, false);
   assert.deepEqual(status.addresses, []);
   assert.equal(status.warning.code, 'LAN_ADDRESS_UNAVAILABLE');
@@ -98,6 +98,15 @@ test('QR yalniz uretilen hostname veya kesfedilmis IP URLsiyle sabit guvenli aya
   assert.equal(waiterQr.url, 'http://restotm-kasa:8787/garson');
   const healthQr = await runtime.createQrSvg('health', '192.168.50.10');
   assert.equal(healthQr.url, 'http://192.168.50.10:8787/api/health');
+  const tableQr = await runtime.createQrSvg('table-menu', '192.168.50.10', {
+    slug: 'lezzet-restoran',
+    tableId: 'table_12345678',
+    tableToken: 'v1.example',
+  });
+  assert.equal(
+    tableQr.url,
+    'http://192.168.50.10:8787/menu/lezzet-restoran?tableId=table_12345678&tableToken=v1.example',
+  );
   assert.deepEqual(calls[0].options, {
     type: 'svg',
     errorCorrectionLevel: 'M',
@@ -112,6 +121,10 @@ test('QR yalniz uretilen hostname veya kesfedilmis IP URLsiyle sabit guvenli aya
   await assert.rejects(
     () => runtime.createQrSvg('unknown'),
     (error) => error instanceof LocalConnectivityError && error.code === 'INVALID_LAN_QR_TARGET',
+  );
+  await assert.rejects(
+    () => runtime.createQrSvg('table-menu'),
+    (error) => error instanceof LocalConnectivityError && error.code === 'TABLE_MENU_QR_IDENTITY_REQUIRED',
   );
 });
 

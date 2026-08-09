@@ -59,6 +59,7 @@ test('runtime topology exposes only one scoped LAN gateway', async () => {
   assert.match(config, /api = \[ordered\]@\{ host = '127\.0\.0\.1'; port = 4100 \}/);
   assert.match(config, /admin = \[ordered\]@\{ host = '127\.0\.0\.1'; port = 3100 \}/);
   assert.match(config, /waiter = \[ordered\]@\{ host = '127\.0\.0\.1'; port = 3200 \}/);
+  assert.match(config, /menu = \[ordered\]@\{ host = '127\.0\.0\.1'; port = 3300 \}/);
   assert.match(config, /print_agent = \[ordered\]@\{ host = '127\.0\.0\.1'; port = 4300 \}/);
   assert.match(config, /firewall_profile = 'Private'/);
   assert.match(config, /remote_scope = 'LocalSubnet'/);
@@ -88,15 +89,35 @@ test('WiX service is delayed-auto, recoverable and data survives uninstall', asy
   assert.doesNotMatch(product, /RemoveFile/);
 });
 
-test('WiX firewall permits only TCP 8787 on Private LocalSubnet', async () => {
+test('WiX firewall permits TCP 8787 and mDNS UDP 5353 only on Private LocalSubnet', async () => {
   const product = await source('wix/Product.wxs');
-  assert.equal((product.match(/<firewall:FirewallException/g) ?? []).length, 1);
-  assert.match(product, /Profile="private"/);
-  assert.match(product, /Scope="localSubnet"/);
-  assert.match(product, /Protocol="tcp"/);
-  assert.match(product, /Port="8787"/);
+  const rules = product.match(/<firewall:FirewallException[\s\S]*?\/>/g) ?? [];
+  assert.equal(rules.length, 3);
+  assert.equal(rules.every((rule) => /Profile="private"/.test(rule)), true);
+  assert.equal(rules.every((rule) => /Scope="localSubnet"/.test(rule)), true);
+  assert.match(rules[0], /Protocol="tcp"[\s\S]*Port="8787"/);
+  assert.match(rules[1], /Protocol="udp"[\s\S]*Port="5353"[\s\S]*RemotePort="5353"/);
+  assert.doesNotMatch(rules[1], /Outbound="yes"/);
+  assert.match(rules[2], /Protocol="udp"[\s\S]*Port="5353"[\s\S]*RemotePort="5353"[\s\S]*Outbound="yes"/);
   assert.doesNotMatch(product, /Port="55432"/);
   assert.doesNotMatch(product, /Profile="public"/i);
+  assert.doesNotMatch(product, /Program=/i);
+});
+
+test('PowerShell firewall contract mirrors narrow TCP and mDNS inbound/outbound rules', async () => {
+  const install = await source('scripts/Install-RestOtmHost.ps1');
+  const verify = await source('scripts/Test-RestOtmInstallation.ps1');
+  for (const script of [install, verify]) {
+    assert.match(script, /RESTOTM LAN Gateway \(Private LocalSubnet\)/);
+    assert.match(script, /RESTOTM mDNS Inbound \(Private LocalSubnet\)/);
+    assert.match(script, /RESTOTM mDNS Outbound \(Private LocalSubnet\)/);
+    assert.match(script, /Protocol\s*=\s*'UDP'/);
+    assert.match(script, /LocalPort\s*=\s*'5353'/);
+    assert.match(script, /RemotePort\s*=\s*'5353'/);
+    assert.match(script, /RemoteAddress[\s\S]{0,100}LocalSubnet/);
+    assert.doesNotMatch(script, /Profile Public/);
+    assert.doesNotMatch(script, /-Program\s/);
+  }
 });
 
 test('installer build is fail-fast on artifacts and signing material', async () => {
@@ -119,7 +140,7 @@ test('example contracts are explicit non-release placeholders', async () => {
   const contract = JSON.parse(await source('installer-contract.example.json'));
   assert.equal(manifest.schemaVersion, 1);
   assert.match(manifest.files[0].sha256, /^REPLACE_/);
-  assert.equal(manifest.files.length, 10);
+  assert.equal(manifest.files.length, 12);
   assert.equal(contract.schema_version, 1);
   assert.equal(contract.first_run_provisioning, true);
   assert.equal(contract.uninstall_preserves_customer_data, true);

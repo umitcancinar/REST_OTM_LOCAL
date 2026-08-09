@@ -1,10 +1,21 @@
 import { isIP } from 'node:net';
 import { networkInterfaces, type NetworkInterfaceInfo } from 'node:os';
 import QRCode from 'qrcode';
+import {
+  GatewayMdnsStatusClient,
+  type GatewayMdnsStatusProvider,
+  type GatewayMdnsView,
+} from './gateway-mdns-status.client';
 
 export const LOCAL_GATEWAY_PORT = 8787 as const;
 
-export type LocalConnectivityTarget = 'admin' | 'waiter' | 'health';
+export type LocalConnectivityTarget = 'admin' | 'waiter' | 'table-menu' | 'health';
+
+export interface TableMenuQrTarget {
+  slug: string;
+  tableId: string;
+  tableToken: string;
+}
 
 export interface NetworkInterfacesProvider {
   getNetworkInterfaces(): NodeJS.Dict<NetworkInterfaceInfo[]>;
@@ -46,8 +57,8 @@ export interface LocalConnectivityStatus {
     defaultTarget: 'waiter';
     allowedTargets: readonly LocalConnectivityTarget[];
   };
+  mdns: GatewayMdnsView;
   blockers: {
-    mdnsAdvertising: 'NOT_IMPLEMENTED';
     tauriUi: 'NOT_IMPLEMENTED';
   };
 }
@@ -78,12 +89,14 @@ class OfficialQrSvgEncoder implements QrSvgEncoder {
 const TARGET_PATHS: Record<LocalConnectivityTarget, string> = {
   admin: '/',
   waiter: '/garson',
+  'table-menu': '/menu',
   health: '/api/health',
 };
 
 const ALLOWED_TARGETS = Object.freeze([
   'admin',
   'waiter',
+  'table-menu',
   'health',
 ] as const satisfies readonly LocalConnectivityTarget[]);
 
@@ -160,6 +173,7 @@ export class LocalConnectivityRuntime {
     hostname: string,
     private readonly interfacesProvider: NetworkInterfacesProvider = new OsNetworkInterfacesProvider(),
     private readonly qrEncoder: QrSvgEncoder = new OfficialQrSvgEncoder(),
+    private readonly mdnsStatusProvider: GatewayMdnsStatusProvider = new GatewayMdnsStatusClient(),
   ) {
     this.hostname = validateLocalLanHostname(hostname);
   }
@@ -190,8 +204,9 @@ export class LocalConnectivityRuntime {
       .map(({ address, family }) => ({ address, family, urls: buildUrls(address) }));
   }
 
-  getStatus(): LocalConnectivityStatus {
+  async getStatus(): Promise<LocalConnectivityStatus> {
     const addresses = this.listAddresses();
+    const mdns = await this.mdnsStatusProvider.getStatus();
     return {
       online: addresses.length > 0,
       hostname: this.hostname,
@@ -209,8 +224,8 @@ export class LocalConnectivityRuntime {
         defaultTarget: 'waiter',
         allowedTargets: ALLOWED_TARGETS,
       },
+      mdns,
       blockers: {
-        mdnsAdvertising: 'NOT_IMPLEMENTED',
         tauriUi: 'NOT_IMPLEMENTED',
       },
     };
@@ -219,6 +234,7 @@ export class LocalConnectivityRuntime {
   async createQrSvg(
     target: LocalConnectivityTarget = 'waiter',
     requestedHost?: string,
+    tableMenu?: TableMenuQrTarget,
   ): Promise<{ svg: string; url: string }> {
     if (!ALLOWED_TARGETS.includes(target)) {
       throw new LocalConnectivityError('INVALID_LAN_QR_TARGET', 'QR hedefi gecersiz.');
@@ -228,7 +244,20 @@ export class LocalConnectivityRuntime {
     if (!allowedHosts.has(host)) {
       throw new LocalConnectivityError('LAN_QR_HOST_NOT_AVAILABLE', 'QR icin secilen LAN adresi kullanilamiyor.', 409);
     }
-    const url = buildUrls(host)[target];
+    let url: string;
+    if (target === 'table-menu') {
+      if (!tableMenu) {
+        throw new LocalConnectivityError('TABLE_MENU_QR_IDENTITY_REQUIRED', 'Masa menusu QR kimligi gerekli.');
+      }
+      const origin = `http://${urlHost(host)}:${LOCAL_GATEWAY_PORT}`;
+      const query = new URLSearchParams({
+        tableId: tableMenu.tableId,
+        tableToken: tableMenu.tableToken,
+      });
+      url = `${origin}/menu/${encodeURIComponent(tableMenu.slug)}?${query.toString()}`;
+    } else {
+      url = buildUrls(host)[target];
+    }
     return { svg: await this.qrEncoder.toSvg(url, QR_OPTIONS), url };
   }
 }

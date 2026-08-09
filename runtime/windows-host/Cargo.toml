@@ -24,19 +24,23 @@ path = "src/bin/installer_bootstrap.rs"
 [dependencies]
 base64 = "0.22"
 ctrlc = "3.4"
+ed25519-dalek = "2.1.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 thiserror = "2"
+time = { version = "=0.3.36", features = ["formatting", "parsing"] }
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 zeroize = "1.8"
+zip = { version = "2.2.2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.8.1"
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
+  "Win32_Security",
   "Win32_Security_Cryptography",
   "Win32_Storage_FileSystem",
   "Win32_System_Console",

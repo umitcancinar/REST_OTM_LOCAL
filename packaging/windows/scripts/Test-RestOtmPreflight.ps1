@@ -55,6 +55,7 @@ $ports = [ordered]@{
     LocalApi = 4100
     AdminUi = 3100
     WaiterUi = 3200
+    MenuUi = 3300
     PrintAgent = 4300
     LanGateway = 8787
 }

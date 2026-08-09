@@ -26,10 +26,10 @@ if (-not (Test-Path -LiteralPath $runtimeExecutable -PathType Leaf)) {
     throw "Runtime service binary eksik; kaynak veya sahte artifact ile kurulum yapilmaz: $runtimeExecutable"
 }
 
-Assert-RestOtmArtifactManifest `
+$installedManifest = Assert-RestOtmArtifactManifest `
     -ArtifactRoot $install `
     -ManifestPath $InstalledArtifactManifestPath `
-    -RequireAuthenticode | Out-Null
+    -RequireAuthenticode
 
 $runtimeSignature = Get-AuthenticodeSignature -LiteralPath $runtimeExecutable
 if ($runtimeSignature.Status -ne [Management.Automation.SignatureStatus]::Valid) {
@@ -52,7 +52,8 @@ if ($PSCmdlet.ShouldProcess($ProgramDataRoot, 'RESTOTM host yapilandirmasini uyg
         -ProgramDataRoot $ProgramDataRoot `
         -BackupRoot $BackupRoot `
         -ExternalBackupRoot $ExternalBackupRoot `
-        -LicenseServerUrl $LicenseServerUrl | Out-Null
+        -LicenseServerUrl $LicenseServerUrl `
+        -ProductVersion ([string]$installedManifest.productVersion) | Out-Null
 
     Set-RestOtmDirectoryAcl -Path $install -ReadOnlyForUsers
 
@@ -74,40 +75,64 @@ if ($PSCmdlet.ShouldProcess($ProgramDataRoot, 'RESTOTM host yapilandirmasini uyg
     & sc.exe failureflag RESTOTMRuntime 1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Servis non-crash failure recovery etkinlestirilemedi.' }
 
-    $firewallName = 'RESTOTM LAN Gateway (Private LocalSubnet)'
-    $existingRule = Get-NetFirewallRule -DisplayName $firewallName -ErrorAction SilentlyContinue
-    if ($null -eq $existingRule) {
-        New-NetFirewallRule `
-            -DisplayName $firewallName `
-            -Group 'RESTOTM' `
-            -Direction Inbound `
-            -Action Allow `
-            -Enabled True `
-            -Profile Private `
-            -Program $runtimeExecutable `
-            -Protocol TCP `
-            -LocalPort 8787 `
-            -RemoteAddress LocalSubnet | Out-Null
-    }
-    else {
-        $portFilter = $existingRule | Get-NetFirewallPortFilter
-        $addressFilter = $existingRule | Get-NetFirewallAddressFilter
-        $applicationFilter = $existingRule | Get-NetFirewallApplicationFilter
-        $isExpected = $existingRule.Enabled -eq 'True' -and
-            $existingRule.Direction -eq 'Inbound' -and
-            $existingRule.Action -eq 'Allow' -and
-            ([string]$existingRule.Profile) -eq 'Private' -and
-            $portFilter.Protocol -eq 'TCP' -and
-            ([string]$portFilter.LocalPort) -eq '8787' -and
-            ([string]$addressFilter.RemoteAddress) -eq 'LocalSubnet' -and
-            ([string]$applicationFilter.Program).Equals($runtimeExecutable, [StringComparison]::OrdinalIgnoreCase)
-        if (-not $isExpected) {
-            throw 'Mevcut RESTOTM firewall kurali beklenen dar kapsamla eslesmiyor; MSI Repair uygulanmali.'
+    $firewallContracts = @(
+        [ordered]@{
+            Name = 'RESTOTM LAN Gateway (Private LocalSubnet)'
+            Direction = 'Inbound'
+            Protocol = 'TCP'
+            LocalPort = '8787'
+            RemotePort = 'Any'
+        },
+        [ordered]@{
+            Name = 'RESTOTM mDNS Inbound (Private LocalSubnet)'
+            Direction = 'Inbound'
+            Protocol = 'UDP'
+            LocalPort = '5353'
+            RemotePort = '5353'
+        },
+        [ordered]@{
+            Name = 'RESTOTM mDNS Outbound (Private LocalSubnet)'
+            Direction = 'Outbound'
+            Protocol = 'UDP'
+            LocalPort = '5353'
+            RemotePort = '5353'
+        }
+    )
+    foreach ($contract in $firewallContracts) {
+        $existingRule = Get-NetFirewallRule -DisplayName $contract.Name -ErrorAction SilentlyContinue
+        if ($null -eq $existingRule) {
+            New-NetFirewallRule `
+                -DisplayName $contract.Name `
+                -Group 'RESTOTM' `
+                -Direction $contract.Direction `
+                -Action Allow `
+                -Enabled True `
+                -Profile Private `
+                -Protocol $contract.Protocol `
+                -LocalPort $contract.LocalPort `
+                -RemotePort $contract.RemotePort `
+                -RemoteAddress LocalSubnet | Out-Null
+        }
+        else {
+            $portFilter = $existingRule | Get-NetFirewallPortFilter
+            $addressFilter = $existingRule | Get-NetFirewallAddressFilter
+            $isExpected = $existingRule.Enabled -eq 'True' -and
+                ([string]$existingRule.Direction) -eq $contract.Direction -and
+                $existingRule.Action -eq 'Allow' -and
+                ([string]$existingRule.Profile) -eq 'Private' -and
+                ([string]$portFilter.Protocol) -eq $contract.Protocol -and
+                ([string]$portFilter.LocalPort) -eq $contract.LocalPort -and
+                ([string]$portFilter.RemotePort) -eq $contract.RemotePort -and
+                ([string]$addressFilter.RemoteAddress) -eq 'LocalSubnet'
+            if (-not $isExpected) {
+                throw "Mevcut RESTOTM firewall kurali dar contract ile eslesmiyor: $($contract.Name)"
+            }
         }
     }
 
+    $allowedFirewallNames = @($firewallContracts | ForEach-Object { $_.Name })
     $unexpectedRules = Get-NetFirewallRule -Group 'RESTOTM' -ErrorAction SilentlyContinue |
-        Where-Object DisplayName -ne $firewallName
+        Where-Object DisplayName -notin $allowedFirewallNames
     if ($unexpectedRules) {
         throw 'RESTOTM grubunda beklenmeyen firewall kurali bulundu. PostgreSQL ve ic servis portlari LAN acilamaz.'
     }

@@ -22,6 +22,11 @@ import {
   createLocalLicenseRouter,
   LocalLicenseRuntime,
 } from '../modules/local-license';
+import {
+  createLocalUpdateRouter,
+  LOCAL_UPDATE_RECOVERY_RULES,
+  LocalUpdateRuntime,
+} from '../modules/local-update';
 import menuRoutes from '../modules/menu/menu.routes';
 import { MenuProjectionRuntime } from '../modules/menu-projection/menu-projection.runtime';
 import { initCleanupTask } from '../modules/orders/cleanup.task';
@@ -29,7 +34,8 @@ import orderRoutes from '../modules/orders/order.routes';
 import posRoutes from '../modules/pos/pos.routes';
 import printRoutes from '../modules/printing/print.routes';
 import { PrintOutboxRuntime } from '../modules/printing/print-outbox.runtime';
-import localPublicRoutes from '../modules/public/local-public.routes';
+import { createLocalPublicRouter } from '../modules/public/local-public.routes';
+import { TableQrTokenService } from '../modules/public/table-qr-token.service';
 import reportRoutes from '../modules/reports/report.routes';
 import reservationRoutes from '../modules/reservations/reservation.routes';
 import staffRoutes from '../modules/staff/staff.routes';
@@ -46,6 +52,7 @@ export function registerLocalProfile(
 ): RuntimeLifecycle {
   const managedServices = options.managedServices !== false;
   const localConnectivityRuntime = new LocalConnectivityRuntime(localEnv.LOCAL_LAN_HOSTNAME);
+  const tableQrTokenService = new TableQrTokenService(localEnv.TABLE_QR_SIGNING_KEY());
   const localLicenseRuntime = managedServices
     ? new LocalLicenseRuntime({
         runtimeMode: 'local',
@@ -84,6 +91,18 @@ export function registerLocalProfile(
         restoreVerificationRetryMs: localEnv.BACKUP_RESTORE_VERIFICATION_RETRY_MS,
       })
     : undefined;
+  const localUpdateRuntime = managedServices && localEnv.LOCAL_UPDATE_PUBLIC_KEY
+    ? new LocalUpdateRuntime({
+        runtimeMode: 'local',
+        dataDir: localEnv.LOCAL_UPDATE_DATA_DIR,
+        manifestUrl: localEnv.LOCAL_UPDATE_MANIFEST_URL,
+        publicKeyPem: localEnv.LOCAL_UPDATE_PUBLIC_KEY,
+        currentVersion: localEnv.APP_VERSION,
+        channel: localEnv.LOCAL_UPDATE_CHANNEL,
+        currentDatabaseSchemaVersion: localEnv.LOCAL_UPDATE_DATABASE_SCHEMA_VERSION,
+        allowedArtifactOrigins: localEnv.LOCAL_UPDATE_ALLOWED_ORIGINS,
+      })
+    : undefined;
   const menuProjectionRuntime = localLicenseRuntime
     ? new MenuProjectionRuntime({
         endpoint: `${localEnv.LOCAL_LICENSE_SERVER_URL}/api/cloud-sync/v1/publications`,
@@ -104,6 +123,7 @@ export function registerLocalProfile(
       additionalRecoveryRules: [
         ...LOCAL_BACKUP_RECOVERY_RULES,
         ...LOCAL_CONNECTIVITY_RECOVERY_RULES,
+        ...LOCAL_UPDATE_RECOVERY_RULES,
         { path: '/api/auth/login', methods: ['POST'] },
         { path: '/api/auth/refresh', methods: ['POST'] },
         { path: '/api/auth/logout', methods: ['POST'] },
@@ -115,12 +135,18 @@ export function registerLocalProfile(
   app.use('/api/local-connectivity', createLocalConnectivityRouter(localConnectivityRuntime, [
     authMiddleware,
     rbac('OWNER', 'ADMIN'),
-  ]));
-  app.use('/api/public', localPublicRoutes);
+  ], tableQrTokenService));
+  app.use('/api/public', createLocalPublicRouter(tableQrTokenService));
   if (localBackupRuntime) {
     app.use('/api/backup', createLocalBackupRouter(localBackupRuntime, [
       authMiddleware,
       rbac('OWNER'),
+    ]));
+  }
+  if (localUpdateRuntime) {
+    app.use('/api/local-update', createLocalUpdateRouter(localUpdateRuntime, [
+      authMiddleware,
+      rbac('OWNER', 'ADMIN'),
     ]));
   }
   app.use('/api/menu', menuRoutes);
@@ -161,7 +187,10 @@ export function registerLocalProfile(
 
   return {
     websocket: true,
-    beforeStart: () => localBackupRuntime?.initialize(),
+    beforeStart: async () => {
+      await localBackupRuntime?.initialize();
+      await localUpdateRuntime?.initialize();
+    },
     afterStart: () => {
       localLicenseRuntime?.start();
       localBackupRuntime?.startScheduler();

@@ -174,6 +174,44 @@ ağdaki garson telefonlarına ve yazıcılara hizmet veren profesyonel REST_OTM.
 - `GEÇTİ` Admin, waiter, menu ve superadmin production build; local artifact
   102 dosya ve cloud artifact 48 dosya fail-closed audit'ten geçti.
 
+### Dördüncü kilometre taşı — gerçek masa QR'ı ve imzalı bakım zinciri
+
+- `BİTTİ` Mevcut QR menü UI/CSS/navigation aynen korunarak local build
+  `/menu/<slug>` altında gateway'e bağlandı. Cloud build eski `/<slug>`
+  adreslerini koruyor; tek kaynak iki açık build profiliyle çalışıyor.
+- `BİTTİ` Menü child yalnız `127.0.0.1:3300` üzerinde çalışıyor; dış LAN'da
+  hâlâ yalnız `8787` var. Menü verisi server-side HTTPS cloud projection'dan,
+  garson çağrısı same-origin local API'den geçiyor; mixed-content yok.
+- `BİTTİ` Masa QR'ı kurulum başına ayrı HMAC secret ile tenant slug + gerçek
+  tableId'ye bağlandı. QR üretiminde ve çağrıda tenant/masa DB doğrulanıyor;
+  istemci IP'si başına dakika 6 çağrı sınırı var. Secret rotasyonu eski QR'ları
+  kasıtlı olarak geçersiz kılıyor.
+- `BİTTİ (STAGE-ONLY)` Ayrı Ed25519 update güven kökü, canonical imzalı manifest,
+  artifact origin/size/SHA-256, anti-rollback/equivocation, atomic high-water ve
+  supervisor handoff uygulandı. Local API hiçbir zaman update'i uygulanmış gibi
+  göstermiyor; yalnız `STAGED_AWAITING_SUPERVISOR` döndürüyor.
+- `BİTTİ (KAYNAK)` Native Windows bootstrap exact Program Files/ProgramData,
+  junction/reparse reddi, CSPRNG, DPAPI LocalMachine, SYSTEM/Admin/restricted
+  service SID DACL, atomic write-through ve receipt-last hash doğrulaması
+  uyguluyor.
+- `BİTTİ` Windows canonical topoloji 7 child'a çıktı; menu `3300` ve ayrı
+  `license-public-key.pem` / `update-public-key.pem` payload rolleri eklendi.
+  Private/non-Ed25519 veya aynı anahtarın iki rolde kullanımı fail-closed.
+- `GEÇTİ (BİRLEŞİK KONTROL)` 11 workspace typecheck; API 110/110, license
+  16/16, menu 4/4, waiter 1/1, gateway 5/5, release 18/18, Windows packaging
+  15/15 ve Windows host kaynak 7/7. Cloud ve local menu production build'leri
+  geçti; cloud artifact 48, local artifact 107 dosya ile fail-closed audit'ten
+  geçti.
+- `ORTAM NOTU` Bu son ana ajan turunda loopback portu isteyen gateway/print
+  testlerini yeniden açma izni kota nedeniyle verilemedi. Gateway'in 5/5 sonucu
+  ajan koşusundan; print-agent'in aynı kod için son tam sonucu 29/29'dur. Bu
+  turdaki sandbox print koşusunda 28 test geçti, yalnız `listen EPERM` alan ağ
+  testi çalışamadı; ürün hatası olarak yorumlanmadı.
+- `KALDI` Native supervisor staged update'i tekrar doğrulayıp safety backup,
+  migration, atomik replace, health gate ve rollback ile gerçekten uygulamalı.
+- `KALDI` Rust/MSVC ve PowerShell derleme/testi ile temiz Windows 11,
+  PostgreSQL, gerçek telefon ve yazıcı kabulü; bu Mac'te cargo/rustc/pwsh yok.
+
 ## Şimdi yapıyorum
 
 ### Faz 1 — cloud/local fiziksel ayrımı
@@ -212,7 +250,8 @@ ağdaki garson telefonlarına ve yazıcılara hizmet veren profesyonel REST_OTM.
 - `BİTTİ` Şifreli otomatik yedek + hash + retention + external replica +
   otomatik restore drill. Windows DPAPI/BitLocker anahtar provisioning ve gerçek
   ikinci disk/NAS saha kabulü kaldı.
-- İmzalı update manifesti, health gate ve rollback.
+- `BİTTİ (STAGE-ONLY)` İmzalı update manifesti/indirme/handoff; native apply,
+  health gate ve rollback kaldı.
 - Profesyonel ortak UI package ve mobile-first waiter sıcak akışı.
 - Self-host fontlar, reduced-motion, erişilebilir dialog/bottom-sheet.
 

@@ -10,6 +10,7 @@
   "first_run_provisioning": true,
   "uninstall_preserves_customer_data": true,
   "license_public_key_relative_path": "config/license-public-key.pem",
+  "update_public_key_relative_path": "config/update-public-key.pem",
   "native_bootstrap": {
     "production_ready": false,
     "verification_command": "verify-production-contract"
@@ -25,7 +26,8 @@
       "jwtAccessSecret",
       "jwtRefreshSecret",
       "backupEncryptionKey",
-      "gatewayControlSecret"
+      "gatewayControlSecret",
+      "tableQrSigningSecret"
     ]
   },
   "network": {
@@ -33,6 +35,7 @@
     "api": { "host": "127.0.0.1", "port": 4100 },
     "admin": { "host": "127.0.0.1", "port": 3100 },
     "waiter": { "host": "127.0.0.1", "port": 3200 },
+    "menu": { "host": "127.0.0.1", "port": 3300 },
     "print_agent": { "host": "127.0.0.1", "port": 4300 },
     "gateway": {
       "host": "0.0.0.0",
@@ -71,6 +74,13 @@
       "depends_on": ["local-api"]
     },
     {
+      "name": "menu-ui",
+      "role": "menu-ui",
+      "relative_executable": "menu/restotm-menu.exe",
+      "relative_working_directory": "menu",
+      "depends_on": ["local-api"]
+    },
+    {
       "name": "print-agent",
       "role": "print-agent",
       "relative_executable": "print-agent/restotm-print-agent.exe",
@@ -82,7 +92,7 @@
       "role": "lan-gateway",
       "relative_executable": "gateway/restotm-lan-gateway.exe",
       "relative_working_directory": "gateway",
-      "depends_on": ["local-api", "admin-ui", "waiter-ui"]
+      "depends_on": ["local-api", "admin-ui", "waiter-ui", "menu-ui"]
     }
   ]
 }

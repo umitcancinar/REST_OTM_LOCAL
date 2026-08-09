@@ -1,10 +1,21 @@
 import { Router } from 'express';
-import { callLocalWaiter } from './local-waiter-call.controller';
+import rateLimit from 'express-rate-limit';
+import { createCallLocalWaiter } from './local-waiter-call.controller';
+import { TableQrTokenService } from './table-qr-token.service';
 
-const router = Router();
+export function createLocalPublicRouter(tableQrTokenService: TableQrTokenService): Router {
+  const router = Router();
+  const waiterCallLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 6,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, message: 'Garson çağrısı sınırı aşıldı.' },
+  });
 
-// Bu LAN aksiyonu cloud public projection'a dahil edilmez. QR menu veya masa
-// terminali dogrudan isletmenin local gateway adresine istek gonderir.
-router.post('/waiter/call/:slug', callLocalWaiter);
+  // Bu LAN aksiyonu cloud public projection'a dahil edilmez. QR menu veya masa
+  // terminali dogrudan isletmenin local gateway adresine istek gonderir.
+  router.post('/waiter/call/:slug', waiterCallLimiter, createCallLocalWaiter(tableQrTokenService));
 
-export default router;
+  return router;
+}

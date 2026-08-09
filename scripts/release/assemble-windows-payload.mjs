@@ -30,9 +30,11 @@ export const CANONICAL_ROLE_PATHS = Object.freeze({
   'local-api': 'api/restotm-api.exe',
   'admin-ui': 'admin/restotm-admin.exe',
   'waiter-ui': 'waiter/restotm-waiter.exe',
+  'menu-ui': 'menu/restotm-menu.exe',
   'print-agent': 'print-agent/restotm-print-agent.exe',
   'lan-gateway': 'gateway/restotm-lan-gateway.exe',
   'license-public-key': 'config/license-public-key.pem',
+  'update-public-key': 'config/update-public-key.pem',
 });
 
 const CANONICAL_CHILDREN = Object.freeze([
@@ -40,6 +42,7 @@ const CANONICAL_CHILDREN = Object.freeze([
   ['local-api', 'local-api', 'api/restotm-api.exe'],
   ['admin-ui', 'admin-ui', 'admin/restotm-admin.exe'],
   ['waiter-ui', 'waiter-ui', 'waiter/restotm-waiter.exe'],
+  ['menu-ui', 'menu-ui', 'menu/restotm-menu.exe'],
   ['print-agent', 'print-agent', 'print-agent/restotm-print-agent.exe'],
   ['lan-gateway', 'lan-gateway', 'gateway/restotm-lan-gateway.exe'],
 ]);
@@ -52,11 +55,12 @@ const SOURCE_MAP_MARKER = /(?:\/\/[#@]|\/\*[#@])\s*sourceMappingURL\s*=/;
 function usage() {
   return [
     'Kullanim: node scripts/release/assemble-windows-payload.mjs --version 1.2.3 --out <new-dir>',
-    '  [--fixture] [--api-closure <dir>] [--admin-app <dir>] [--waiter-app <dir>]',
+    '  [--fixture] [--api-closure <dir>] [--admin-app <dir>] [--waiter-app <dir>] [--menu-app <dir>]',
     '  [--gateway-dist <dir>] [--print-agent-dist <dir>] [--receipt-dist <dir>]',
-    '  [--receipt-package <file>] [--installer-contract <file>] [--public-key <file>]',
+    '  [--receipt-package <file>] [--installer-contract <file>]',
+    '  [--license-public-key <file>] [--update-public-key <file>]',
     '  [--runtime-service <file>] [--bootstrap <file>] [--postgres <file>] [--pg-dump <file>]',
-    '  [--api-launcher <file>] [--admin-launcher <file>] [--waiter-launcher <file>]',
+    '  [--api-launcher <file>] [--admin-launcher <file>] [--waiter-launcher <file>] [--menu-launcher <file>]',
     '  [--print-launcher <file>] [--gateway-launcher <file>]',
   ].join('\n');
 }
@@ -68,12 +72,14 @@ function defaultOptions() {
     apiClosure: path.join(REPOSITORY_ROOT, 'build/stage/local'),
     adminApp: path.join(REPOSITORY_ROOT, 'apps/admin'),
     waiterApp: path.join(REPOSITORY_ROOT, 'apps/waiter'),
+    menuApp: path.join(REPOSITORY_ROOT, 'apps/menu'),
     gatewayDist: path.join(REPOSITORY_ROOT, 'apps/gateway/dist'),
     printAgentDist: path.join(REPOSITORY_ROOT, 'apps/print-agent/dist'),
     receiptDist: path.join(REPOSITORY_ROOT, 'packages/receipt-core/dist'),
     receiptPackage: path.join(REPOSITORY_ROOT, 'packages/receipt-core/package.json'),
     installerContract: path.join(windowsInput, 'installer-contract.json'),
     publicKey: path.join(windowsInput, 'config/license-public-key.pem'),
+    updatePublicKey: path.join(windowsInput, 'config/update-public-key.pem'),
     runtimeService: path.join(windowsInput, 'bin/restotm-runtime-service.exe'),
     bootstrap: path.join(windowsInput, 'bin/restotm-installer-bootstrap.exe'),
     postgres: path.join(windowsInput, 'postgres/bin/postgres.exe'),
@@ -81,6 +87,7 @@ function defaultOptions() {
     apiLauncher: path.join(windowsInput, 'api/restotm-api.exe'),
     adminLauncher: path.join(windowsInput, 'admin/restotm-admin.exe'),
     waiterLauncher: path.join(windowsInput, 'waiter/restotm-waiter.exe'),
+    menuLauncher: path.join(windowsInput, 'menu/restotm-menu.exe'),
     printLauncher: path.join(windowsInput, 'print-agent/restotm-print-agent.exe'),
     gatewayLauncher: path.join(windowsInput, 'gateway/restotm-lan-gateway.exe'),
   };
@@ -92,12 +99,15 @@ const VALUE_FLAGS = Object.freeze({
   '--api-closure': 'apiClosure',
   '--admin-app': 'adminApp',
   '--waiter-app': 'waiterApp',
+  '--menu-app': 'menuApp',
   '--gateway-dist': 'gatewayDist',
   '--print-agent-dist': 'printAgentDist',
   '--receipt-dist': 'receiptDist',
   '--receipt-package': 'receiptPackage',
   '--installer-contract': 'installerContract',
   '--public-key': 'publicKey',
+  '--license-public-key': 'publicKey',
+  '--update-public-key': 'updatePublicKey',
   '--runtime-service': 'runtimeService',
   '--bootstrap': 'bootstrap',
   '--postgres': 'postgres',
@@ -105,6 +115,7 @@ const VALUE_FLAGS = Object.freeze({
   '--api-launcher': 'apiLauncher',
   '--admin-launcher': 'adminLauncher',
   '--waiter-launcher': 'waiterLauncher',
+  '--menu-launcher': 'menuLauncher',
   '--print-launcher': 'printLauncher',
   '--gateway-launcher': 'gatewayLauncher',
 });
@@ -112,6 +123,7 @@ const VALUE_FLAGS = Object.freeze({
 export function parseWindowsPayloadArguments(argv) {
   const options = defaultOptions();
   const seen = new Set();
+  const seenProperties = new Set();
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     if (flag === '--fixture') {
@@ -123,9 +135,11 @@ export function parseWindowsPayloadArguments(argv) {
     const property = VALUE_FLAGS[flag];
     if (!property) throw new Error(`Bilinmeyen arguman: ${flag}\n${usage()}`);
     if (seen.has(flag)) throw new Error(`Duplicate arguman: ${flag}`);
+    if (seenProperties.has(property)) throw new Error(`Ayni girdi birden fazla kez verilemez: ${flag}`);
     const value = argv[index + 1];
     if (!value || value.startsWith('--')) throw new Error(`${flag} icin deger gerekli.`);
     seen.add(flag);
+    seenProperties.add(property);
     options[property] = value;
     index += 1;
   }
@@ -245,6 +259,7 @@ function validateInstallerContract(contract, mode) {
     || contract.service_name !== 'RESTOTMRuntime'
     || contract.bootstrap_executable_relative_path !== CANONICAL_ROLE_PATHS['installer-bootstrap']
     || contract.license_public_key_relative_path !== CANONICAL_ROLE_PATHS['license-public-key']
+    || contract.update_public_key_relative_path !== CANONICAL_ROLE_PATHS['update-public-key']
   ) {
     throw new Error('Installer contract canonical Windows host semasiyla uyusmuyor.');
   }
@@ -298,6 +313,19 @@ async function validateApiClosure(apiClosure, mode) {
     });
 }
 
+async function validateLocalMenuBuild(menuApp) {
+  const requiredFilesPath = path.join(menuApp, '.next/required-server-files.json');
+  let metadata;
+  try {
+    metadata = JSON.parse(await readFile(requiredFilesPath, 'utf8'));
+  } catch {
+    throw new Error(`Menu Next build metadata eksik veya gecersiz: ${requiredFilesPath}`);
+  }
+  if (metadata?.config?.basePath !== '/menu') {
+    throw new Error('Windows local menu artifact MENU_BASE_PATH=/menu ile build edilmemis.');
+  }
+}
+
 export async function assembleWindowsPayload(options, dependencies = {}) {
   const mode = options.mode ?? 'production';
   if (!['production', 'fixture'].includes(mode)) throw new Error(`Gecersiz staging modu: ${mode}`);
@@ -313,12 +341,14 @@ export async function assembleWindowsPayload(options, dependencies = {}) {
     apiClosure: 'directory',
     adminApp: 'directory',
     waiterApp: 'directory',
+    menuApp: 'directory',
     gatewayDist: 'directory',
     printAgentDist: 'directory',
     receiptDist: 'directory',
     receiptPackage: 'file',
     installerContract: 'file',
     publicKey: 'file',
+    updatePublicKey: 'file',
     runtimeService: 'file',
     bootstrap: 'file',
     postgres: 'file',
@@ -326,6 +356,7 @@ export async function assembleWindowsPayload(options, dependencies = {}) {
     apiLauncher: 'file',
     adminLauncher: 'file',
     waiterLauncher: 'file',
+    menuLauncher: 'file',
     printLauncher: 'file',
     gatewayLauncher: 'file',
   })) {
@@ -335,9 +366,24 @@ export async function assembleWindowsPayload(options, dependencies = {}) {
   const contract = JSON.parse(await readFile(input.installerContract, 'utf8'));
   validateInstallerContract(contract, mode);
   await validateApiClosure(input.apiClosure, mode);
+  await validateLocalMenuBuild(input.menuApp);
 
   const signatureVerifier = dependencies.authenticodeVerifier ?? defaultAuthenticodeVerifier;
-  await assertSafeContent(input.publicKey, CANONICAL_ROLE_PATHS['license-public-key'], { allowPublicKey: true });
+  const licensePublicKey = await assertSafeContent(
+    input.publicKey,
+    CANONICAL_ROLE_PATHS['license-public-key'],
+    { allowPublicKey: true },
+  );
+  const updatePublicKey = await assertSafeContent(
+    input.updatePublicKey,
+    CANONICAL_ROLE_PATHS['update-public-key'],
+    { allowPublicKey: true },
+  );
+  const licenseSpki = createPublicKey(licensePublicKey).export({ type: 'spki', format: 'der' });
+  const updateSpki = createPublicKey(updatePublicKey).export({ type: 'spki', format: 'der' });
+  if (Buffer.from(licenseSpki).equals(Buffer.from(updateSpki))) {
+    throw new Error('Lisans ve update imzalari ayri Ed25519 public key kullanmali.');
+  }
 
   const outputParent = path.dirname(outputRoot);
   await mkdir(outputParent, { recursive: true });
@@ -398,9 +444,11 @@ export async function assembleWindowsPayload(options, dependencies = {}) {
     await copyOne(input.apiLauncher, CANONICAL_ROLE_PATHS['local-api'], 'local-api');
     await copyOne(input.adminLauncher, CANONICAL_ROLE_PATHS['admin-ui'], 'admin-ui');
     await copyOne(input.waiterLauncher, CANONICAL_ROLE_PATHS['waiter-ui'], 'waiter-ui');
+    await copyOne(input.menuLauncher, CANONICAL_ROLE_PATHS['menu-ui'], 'menu-ui');
     await copyOne(input.printLauncher, CANONICAL_ROLE_PATHS['print-agent'], 'print-agent');
     await copyOne(input.gatewayLauncher, CANONICAL_ROLE_PATHS['lan-gateway'], 'lan-gateway');
     await copyOne(input.publicKey, CANONICAL_ROLE_PATHS['license-public-key'], 'license-public-key', { allowPublicKey: true });
+    await copyOne(input.updatePublicKey, CANONICAL_ROLE_PATHS['update-public-key'], 'update-public-key', { allowPublicKey: true });
     await copyOne(input.installerContract, 'installer-contract.json', 'installer-contract');
 
     await copyTree(path.join(input.apiClosure, 'api'), 'api/runtime', 'local-api-runtime');
@@ -410,6 +458,7 @@ export async function assembleWindowsPayload(options, dependencies = {}) {
     for (const [appRoot, appName, destination, role] of [
       [input.adminApp, 'admin', 'admin/runtime', 'admin-ui-runtime'],
       [input.waiterApp, 'waiter', 'waiter/runtime', 'waiter-ui-runtime'],
+      [input.menuApp, 'menu', 'menu/runtime', 'menu-ui-runtime'],
     ]) {
       await copyTree(path.join(appRoot, '.next/standalone'), destination, role);
       await copyTree(

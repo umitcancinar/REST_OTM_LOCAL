@@ -5,6 +5,9 @@ import prisma from '../config/database';
 import { publicCmsLimiter } from '../middlewares/rateLimiter.middleware';
 import authRoutes from '../modules/auth/auth.routes';
 import cloudMenuSyncRoutes from '../modules/cloud-menu-sync/cloud-menu-sync.routes';
+import cloudUpdateAdminRoutes, {
+  cloudUpdateManifestRouter,
+} from '../modules/cloud-update/cloud-update.routes';
 import licenseAdminRoutes from '../modules/license-admin/license-admin.routes';
 import licenseRoutes from '../modules/license/license.routes';
 import publicRoutes from '../modules/public/public.routes';
@@ -72,6 +75,8 @@ export function registerCloudProfile(
   app.use('/api/license', licenseRoutes);
   app.use('/api/license-admin', licenseAdminRoutes);
   app.use('/api/cloud-sync/v1', cloudMenuSyncRoutes);
+  app.use('/api/updates/v1', cloudUpdateManifestRouter);
+  app.use('/api/update-admin', cloudUpdateAdminRoutes);
   app.use('/api/tenants', tenantRoutes);
 
   return { beforeStart: ensureAdminUser };

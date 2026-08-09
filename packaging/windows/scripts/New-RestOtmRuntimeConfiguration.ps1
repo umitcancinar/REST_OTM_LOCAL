@@ -8,6 +8,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$LicenseServerUrl,
 
+    [ValidatePattern('^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$')]
+    [string]$ProductVersion = '1.0.0',
+
     [switch]$RotateSecrets
 )
 
@@ -31,6 +34,9 @@ $runtimeRoot = Join-Path $programData 'runtime'
 $runtimeConfigPath = Join-Path $configRoot 'runtime.json'
 $secretConfigPath = Join-Path $configRoot 'secrets.json'
 $bootstrapReceiptPath = Join-Path $configRoot 'bootstrap-receipt.json'
+$printAgentDataRoot = Join-Path $dataRoot 'print-agent'
+$updateDataRoot = Join-Path $dataRoot 'update'
+$backupReplicaRoot = Join-Path $programData 'backup-replica'
 
 if ($backup.Equals($dataRoot, [StringComparison]::OrdinalIgnoreCase) -or
     $backup.StartsWith(($dataRoot + '\'), [StringComparison]::OrdinalIgnoreCase)) {
@@ -45,7 +51,9 @@ if (-not [string]::IsNullOrWhiteSpace($ExternalBackupRoot)) {
     if ($externalBackup.StartsWith(($programData + '\'), [StringComparison]::OrdinalIgnoreCase)) {
         throw 'Harici yedek hedefi ProgramData disinda olmalidir.'
     }
+    $backupReplicaRoot = $externalBackup
 }
+$backupReplicaPolicy = if ($null -ne $externalBackup) { 'require-separate' } else { 'warn' }
 
 $licenseUri = [Uri]$LicenseServerUrl
 if ($licenseUri.Scheme -ne 'https' -or
@@ -61,11 +69,13 @@ $directories = @(
     (Join-Path $dataRoot 'postgres'),
     (Join-Path $dataRoot 'uploads'),
     (Join-Path $dataRoot 'license'),
+    $updateDataRoot,
+    $printAgentDataRoot,
     $logRoot,
     $runtimeRoot,
-    $backup
+    $backup,
+    $backupReplicaRoot
 )
-if ($null -ne $externalBackup) { $directories += $externalBackup }
 
 if ($PSCmdlet.ShouldProcess($programData, 'Canonical RESTOTM runtime config, secret store ve receipt olustur')) {
     foreach ($directory in $directories) {
@@ -79,7 +89,7 @@ if ($PSCmdlet.ShouldProcess($programData, 'Canonical RESTOTM runtime config, sec
     Set-RestOtmDirectoryAcl -Path $logRoot
     Set-RestOtmDirectoryAcl -Path $runtimeRoot
     Set-RestOtmDirectoryAcl -Path $backup
-    if ($null -ne $externalBackup) { Set-RestOtmDirectoryAcl -Path $externalBackup }
+    Set-RestOtmDirectoryAcl -Path $backupReplicaRoot
 
     $installationId = [Guid]::NewGuid().ToString('D')
     if (Test-Path -LiteralPath $runtimeConfigPath -PathType Leaf) {
@@ -101,8 +111,9 @@ if ($PSCmdlet.ShouldProcess($programData, 'Canonical RESTOTM runtime config, sec
             printAgentSecret = Protect-RestOtmMachineSecret (New-RestOtmRandomSecret -ByteCount 48)
             jwtAccessSecret = Protect-RestOtmMachineSecret (New-RestOtmRandomSecret -ByteCount 64)
             jwtRefreshSecret = Protect-RestOtmMachineSecret (New-RestOtmRandomSecret -ByteCount 64)
-            backupEncryptionKey = Protect-RestOtmMachineSecret (New-RestOtmRandomSecret -ByteCount 64)
+            backupEncryptionKey = Protect-RestOtmMachineSecret (New-RestOtmCanonicalBase64Secret -ByteCount 32)
             gatewayControlSecret = Protect-RestOtmMachineSecret (New-RestOtmRandomSecret -ByteCount 48)
+            tableQrSigningSecret = Protect-RestOtmMachineSecret (New-RestOtmRandomSecret -ByteCount 48)
         }
         $secretStore = [ordered]@{
             schema_version = 1
@@ -129,7 +140,8 @@ if ($PSCmdlet.ShouldProcess($programData, 'Canonical RESTOTM runtime config, sec
             'jwtAccessSecret',
             'jwtRefreshSecret',
             'backupEncryptionKey',
-            'gatewayControlSecret'
+            'gatewayControlSecret',
+            'tableQrSigningSecret'
         )) {
             $secretProperty = $existingSecrets.values.PSObject.Properties[$requiredSecret]
             if ($null -eq $secretProperty -or
@@ -140,6 +152,7 @@ if ($PSCmdlet.ShouldProcess($programData, 'Canonical RESTOTM runtime config, sec
     }
 
     $emptyEnvironment = [ordered]@{}
+    $localLanHostname = "restotm-$($installationId.Replace('-', '').Substring(0, 8)).local"
     $runtimeConfig = [ordered]@{
         schema_version = 1
         installation_id = $installationId
@@ -154,6 +167,7 @@ if ($PSCmdlet.ShouldProcess($programData, 'Canonical RESTOTM runtime config, sec
             api = [ordered]@{ host = '127.0.0.1'; port = 4100 }
             admin = [ordered]@{ host = '127.0.0.1'; port = 3100 }
             waiter = [ordered]@{ host = '127.0.0.1'; port = 3200 }
+            menu = [ordered]@{ host = '127.0.0.1'; port = 3300 }
             print_agent = [ordered]@{ host = '127.0.0.1'; port = 4300 }
             gateway = [ordered]@{
                 host = '0.0.0.0'
@@ -190,26 +204,45 @@ if ($PSCmdlet.ShouldProcess($programData, 'Canonical RESTOTM runtime config, sec
                 arguments = @()
                 environment = [ordered]@{
                     NODE_ENV = 'production'
+                    APP_VERSION = $ProductVersion
                     RUNTIME_MODE = 'local'
                     BIND_HOST = '127.0.0.1'
                     PORT = '4100'
                     LOCAL_LICENSE_SERVER_URL = $licenseUri.AbsoluteUri.TrimEnd('/')
                     LOCAL_LICENSE_DATA_DIR = (Join-Path $dataRoot 'license')
+                    LOCAL_LAN_HOSTNAME = $localLanHostname
+                    LOCAL_UPDATE_MANIFEST_URL = "$($licenseUri.AbsoluteUri.TrimEnd('/'))/api/updates/v1/manifest"
+                    LOCAL_UPDATE_DATA_DIR = $updateDataRoot
+                    LOCAL_UPDATE_CHANNEL = 'stable'
+                    LOCAL_UPDATE_DATABASE_SCHEMA_VERSION = '1'
+                    LOCAL_UPDATE_ALLOWED_ORIGINS = $licenseUri.AbsoluteUri.TrimEnd('/')
                     LOCAL_POSTGRES_DATA_DIR = (Join-Path $dataRoot 'postgres')
                     LOCAL_BACKUP_DIR = $backup
+                    LOCAL_BACKUP_EXTERNAL_DIR = $backupReplicaRoot
+                    LOCAL_BACKUP_EXTERNAL_VOLUME_POLICY = $backupReplicaPolicy
+                    LOCAL_BACKUP_KEY_ID = "restotm-$installationId"
                     PG_DUMP_PATH = (Join-Path $install 'postgres\bin\pg_dump.exe')
+                    PG_RESTORE_PATH = (Join-Path $install 'postgres\bin\pg_restore.exe')
                     BACKUP_RETENTION_DAILY = '30'
                     BACKUP_RETENTION_WEEKLY = '12'
                     BACKUP_RETENTION_MONTHLY = '12'
+                    BACKUP_EXTERNAL_RETENTION_DAILY = '90'
+                    BACKUP_EXTERNAL_RETENTION_WEEKLY = '26'
+                    BACKUP_EXTERNAL_RETENTION_MONTHLY = '24'
+                    BACKUP_RESTORE_VERIFICATION_INTERVAL_MS = '604800000'
+                    BACKUP_RESTORE_VERIFICATION_RETRY_MS = '21600000'
                 }
                 file_environment = [ordered]@{
                     LOCAL_LICENSE_PUBLIC_KEY = (Join-Path $install 'config\license-public-key.pem')
+                    LOCAL_UPDATE_PUBLIC_KEY = (Join-Path $install 'config\update-public-key.pem')
                 }
                 secret_environment = [ordered]@{
                     DATABASE_URL = 'databaseUrl'
                     JWT_ACCESS_SECRET = 'jwtAccessSecret'
                     JWT_REFRESH_SECRET = 'jwtRefreshSecret'
                     PRINT_AGENT_SECRET = 'printAgentSecret'
+                    LOCAL_BACKUP_KEY_BASE64 = 'backupEncryptionKey'
+                    TABLE_QR_SIGNING_SECRET = 'tableQrSigningSecret'
                 }
                 depends_on = @('postgres')
                 essential = $true
@@ -246,11 +279,32 @@ if ($PSCmdlet.ShouldProcess($programData, 'Canonical RESTOTM runtime config, sec
                 shutdown = [ordered]@{ type = 'terminate'; grace_ms = 5000 }
             },
             [ordered]@{
+                name = 'menu-ui'
+                executable = (Join-Path $install 'menu\restotm-menu.exe')
+                working_directory = (Join-Path $install 'menu')
+                arguments = @()
+                environment = [ordered]@{
+                    NODE_ENV = 'production'
+                    HOSTNAME = '127.0.0.1'
+                    PORT = '3300'
+                    CLOUD_MENU_API_URL = "$($licenseUri.AbsoluteUri.TrimEnd('/'))/api"
+                }
+                file_environment = $emptyEnvironment
+                secret_environment = $emptyEnvironment
+                depends_on = @('local-api')
+                essential = $true
+                shutdown = [ordered]@{ type = 'terminate'; grace_ms = 5000 }
+            },
+            [ordered]@{
                 name = 'print-agent'
                 executable = (Join-Path $install 'print-agent\restotm-print-agent.exe')
                 working_directory = (Join-Path $install 'print-agent')
                 arguments = @()
-                environment = [ordered]@{ PRINT_AGENT_WS_URL = 'http://127.0.0.1:4100' }
+                environment = [ordered]@{
+                    NODE_ENV = 'production'
+                    PRINT_AGENT_WS_URL = 'http://127.0.0.1:4100'
+                    PRINT_AGENT_DATA_DIR = $printAgentDataRoot
+                }
                 file_environment = $emptyEnvironment
                 secret_environment = [ordered]@{ PRINT_AGENT_SECRET = 'printAgentSecret' }
                 depends_on = @('local-api')
@@ -263,15 +317,18 @@ if ($PSCmdlet.ShouldProcess($programData, 'Canonical RESTOTM runtime config, sec
                 working_directory = (Join-Path $install 'gateway')
                 arguments = @()
                 environment = [ordered]@{
-                    BIND_HOST = '0.0.0.0'
-                    PORT = '8787'
-                    API_UPSTREAM = 'http://127.0.0.1:4100'
-                    ADMIN_UPSTREAM = 'http://127.0.0.1:3100'
-                    WAITER_UPSTREAM = 'http://127.0.0.1:3200'
+                    NODE_ENV = 'production'
+                    GATEWAY_BIND_HOST = '0.0.0.0'
+                    GATEWAY_PORT = '8787'
+                    GATEWAY_ALLOWED_HOSTS = $localLanHostname
+                    GATEWAY_API_TARGET = 'http://127.0.0.1:4100'
+                    GATEWAY_ADMIN_TARGET = 'http://127.0.0.1:3100'
+                    GATEWAY_WAITER_TARGET = 'http://127.0.0.1:3200'
+                    GATEWAY_MENU_TARGET = 'http://127.0.0.1:3300'
                 }
                 file_environment = $emptyEnvironment
                 secret_environment = [ordered]@{ GATEWAY_CONTROL_SECRET = 'gatewayControlSecret' }
-                depends_on = @('local-api', 'admin-ui', 'waiter-ui')
+                depends_on = @('local-api', 'admin-ui', 'waiter-ui', 'menu-ui')
                 essential = $true
                 shutdown = [ordered]@{ type = 'terminate'; grace_ms = 5000 }
             }

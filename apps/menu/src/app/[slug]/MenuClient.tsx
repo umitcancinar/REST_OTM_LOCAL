@@ -4,7 +4,6 @@ import { useState, useMemo } from 'react';
 import { 
   Bell, 
   Search, 
-  ChevronRight,
   Sun,
   Moon,
   Info
@@ -14,13 +13,14 @@ import { useTheme } from '../../context/ThemeContext';
 interface MenuClientProps {
   tenantSlug: string;
   tableId?: string;
+  tableToken?: string;
   menuData: any[]; // Kategori ve item listesi
   restaurantInfo: {
     name: string;
   };
 }
 
-export default function MenuClient({ tenantSlug, tableId, menuData, restaurantInfo }: MenuClientProps) {
+export default function MenuClient({ tenantSlug, tableId, tableToken, menuData, restaurantInfo }: MenuClientProps) {
   const { theme, toggleTheme } = useTheme();
   
   const [activeCategory, setActiveCategory] = useState<string>(menuData[0]?.id || '');
@@ -36,16 +36,17 @@ export default function MenuClient({ tenantSlug, tableId, menuData, restaurantIn
   };
 
   const handleCallWaiter = async () => {
-    if (!tableId) {
+    if (!tableId || !tableToken) {
       displayToast('Masa numarası bulunamadı!');
       return;
     }
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api'}/public/waiter/call/${tenantSlug}`, {
+      const response = await fetch(`/api/public/waiter/call/${encodeURIComponent(tenantSlug)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tableId })
+        body: JSON.stringify({ tableId, tableToken })
       });
+      if (!response.ok) throw new Error('WAITER_CALL_REJECTED');
       displayToast('Garson çağrıldı!');
     } catch {
       displayToast('Bağlantı hatası.');

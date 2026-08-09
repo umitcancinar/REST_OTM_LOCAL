@@ -16,48 +16,52 @@ datasource db {
 // ─── TENANT ────────────────────────────────────────
 
 model Tenant {
-  id        String   @id @default(cuid())
-  name      String
-  slug          String   @unique
-  customDomain  String?  @unique
-  logo          String?
-  address       String?
-  phone     String?
-  email     String?
-  settings  Json     @default("{}")
-  isActive  Boolean  @default(true)
-  /** Tenant basina print-agent kimlik dogrulama sirri. Null ise (henuz
-   *  uretilmemis eski kayitlar) socket.server.ts global PRINT_AGENT_SECRET'a
-   *  duser — geriye donuk uyumluluk icin bilerek boyle. */
+  id                    String    @id @default(cuid())
+  name                  String
+  slug                  String    @unique
+  customDomain          String?   @unique
+  logo                  String?
+  address               String?
+  phone                 String?
+  email                 String?
+  settings              Json      @default("{}")
+  isActive              Boolean   @default(true)
+  /**
+   * Tenant basina print-agent kimlik dogrulama sirri. Null ise (henuz
+   * uretilmemis eski kayitlar) socket.server.ts global PRINT_AGENT_SECRET'a
+   * duser — geriye donuk uyumluluk icin bilerek boyle.
+   */
   printAgentSecret      String?
-  /** Uyelik bitis tarihi. Null = sure hic ayarlanmamis (kontrol devre disi,
-   *  mevcut musterileri kilitlememek icin varsayilan). */
+  /**
+   * Uyelik bitis tarihi. Null = sure hic ayarlanmamis (kontrol devre disi,
+   * mevcut musterileri kilitlememek icin varsayilan).
+   */
   subscriptionExpiresAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
-  licenses       License[]
-  users          User[]
-  menuCategories MenuCategory[]
-  menuItems      MenuItem[]
-  tables         RestaurantTable[]
-  orders         Order[]
-  orderCounters  OrderCounter[]
-  orderCommands  OrderCommand[]
-  printJobs      PrintJob[]
-  menuProjectionOutbox MenuProjectionOutbox[]
+  licenses               License[]
+  users                  User[]
+  menuCategories         MenuCategory[]
+  menuItems              MenuItem[]
+  tables                 RestaurantTable[]
+  orders                 Order[]
+  orderCounters          OrderCounter[]
+  orderCommands          OrderCommand[]
+  printJobs              PrintJob[]
+  menuProjectionOutbox   MenuProjectionOutbox[]
   menuProjectionSequence MenuProjectionSequence?
-  inventoryItems InventoryItem[]
-  recipes        Recipe[]
-  wasteLogs      WasteLog[]
-  printerConfigs PrinterConfig[]
-  reservations   Reservation[]
-  customers      Customer[]
-  galleryImages  GalleryImage[]
-  stories        Story[]
-  reviews        Review[]
-  newsletterSubs NewsletterSubscriber[]
-  invoices       Invoice[]
+  inventoryItems         InventoryItem[]
+  recipes                Recipe[]
+  wasteLogs              WasteLog[]
+  printerConfigs         PrinterConfig[]
+  reservations           Reservation[]
+  customers              Customer[]
+  galleryImages          GalleryImage[]
+  stories                Story[]
+  reviews                Review[]
+  newsletterSubs         NewsletterSubscriber[]
+  invoices               Invoice[]
 
   @@map("tenants")
 }
@@ -80,14 +84,14 @@ model User {
   passwordHash String
   name         String
   role         Role      @default(WAITER)
-  pin          String?   // Quick PIN login for waiters
+  pin          String? // Quick PIN login for waiters
   isActive     Boolean   @default(true)
   lastLoginAt  DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  tenant        Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  orders        Order[]   @relation("WaiterOrders")
+  tenant        Tenant?        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orders        Order[]        @relation("WaiterOrders")
   wasteLogs     WasteLog[]
   refreshTokens RefreshToken[]
 
@@ -103,60 +107,86 @@ model User {
 // dogrular (bkz. packages/license).
 
 enum LicenseStatus {
-  /** Uretildi, henuz bir bilgisayara baglanmadi. */
+  /**
+   * Uretildi, henuz bir bilgisayara baglanmadi.
+   */
   PENDING
-  /** Bir makineye baglandi ve calisiyor. */
+  /**
+   * Bir makineye baglandi ve calisiyor.
+   */
   ACTIVE
-  /** Superadmin tarafindan durduruldu (odeme yok vb.). */
+  /**
+   * Superadmin tarafindan durduruldu (odeme yok vb.).
+   */
   SUSPENDED
-  /** Kalici olarak iptal edildi. */
+  /**
+   * Kalici olarak iptal edildi.
+   */
   REVOKED
 }
 
 model License {
-  id       String        @id @default(cuid())
-  tenantId String
+  id               String        @id @default(cuid())
+  tenantId         String
   /**
    * Gecis alani: eski kurulumlar backfill edilene kadar "key" kolonuna
    * maplenir. Yeni lisanslar buraya plaintext yazmaz. Backfill preflight'i
    * sifira ulastiktan sonraki contract migration'inda tamamen kaldirilacak.
    */
-  legacyKey        String? @unique @map("key")
-  /** Rotasyonlu server pepper ile HMAC-SHA-256; ham anahtar geri uretilmez. */
-  keyHash          String? @unique @db.Char(64)
-  keyPepperVersion String? @db.VarChar(32)
-  /** Yalniz maskeleme/destek gorunumu icin; kimlik dogrulamada kullanilmaz. */
-  keyLast4         String? @db.Char(4)
+  legacyKey        String?       @unique @map("key")
+  /**
+   * Rotasyonlu server pepper ile HMAC-SHA-256; ham anahtar geri uretilmez.
+   */
+  keyHash          String?       @unique @db.Char(64)
+  keyPepperVersion String?       @db.VarChar(32)
+  /**
+   * Yalniz maskeleme/destek gorunumu icin; kimlik dogrulamada kullanilmaz.
+   */
+  keyLast4         String?       @db.Char(4)
   status           LicenseStatus @default(PENDING)
 
-  /** Baglandigi makinenin parmak izi. Null ise henuz aktive edilmemis.
-   *  Ikinci bir makinede ayni anahtarla aktivasyon denendiginde burasi
-   *  dolu oldugu icin reddedilir. */
-  hardwareId     String?
-  /** Destek ekraninda musterinin okuyabilecegi kisa kod. */
+  /**
+   * Baglandigi makinenin parmak izi. Null ise henuz aktive edilmemis.
+   * Ikinci bir makinede ayni anahtarla aktivasyon denendiginde burasi
+   * dolu oldugu icin reddedilir.
+   */
+  hardwareId      String?
+  /**
+   * Destek ekraninda musterinin okuyabilecegi kisa kod.
+   */
   hardwareIdShort String?
-  activatedAt    DateTime?
+  activatedAt     DateTime?
 
-  /** Uyelik bitisi. Lisans her yenilendiginde bu tarih imzalanir. */
+  /**
+   * Uyelik bitisi. Lisans her yenilendiginde bu tarih imzalanir.
+   */
   expiresAt DateTime
 
-  /** Internet kesintisinde kac gun calisabilecegi. */
+  /**
+   * Internet kesintisinde kac gun calisabilecegi.
+   */
   graceDays Int @default(7)
 
-  /** Acik ozellikler: einvoice, pos, inventory ... */
+  /**
+   * Acik ozellikler: einvoice, pos, inventory ...
+   */
   features String[] @default([])
 
-  /** Son yoklama bilgileri — superadmin panelinde "canli mi" gostergesi.
-   *  Uzun suredir yoklama gelmiyorsa ya kapali ya da engellenmis demektir. */
+  /**
+   * Son yoklama bilgileri — superadmin panelinde "canli mi" gostergesi.
+   * Uzun suredir yoklama gelmiyorsa ya kapali ya da engellenmis demektir.
+   */
   lastHeartbeatAt DateTime?
   lastHeartbeatIp String?
   appVersion      String?
 
-  /** Kurcalama supheleri burada birikir (imza hatasi, saat oynatma,
-   *  farkli donanimdan gelen yoklama). Superadmin gorup arayabilsin. */
-  suspiciousCount Int       @default(0)
+  /**
+   * Kurcalama supheleri burada birikir (imza hatasi, saat oynatma,
+   * farkli donanimdan gelen yoklama). Superadmin gorup arayabilsin.
+   */
+  suspiciousCount  Int       @default(0)
   lastSuspiciousAt DateTime?
-  notes           String?
+  notes            String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -170,8 +200,10 @@ model License {
   @@map("licenses")
 }
 
-/** Superadmin lisans islemlerinin degistirilemez olay gunlugu.
- *  Her kayit ilgili lisans degisikligiyle AYNI transaction'da yazilir. */
+/**
+ * Superadmin lisans islemlerinin degistirilemez olay gunlugu.
+ * Her kayit ilgili lisans degisikligiyle AYNI transaction'da yazilir.
+ */
 enum LicenseAuditAction {
   CREATED
   UPDATED
@@ -207,22 +239,110 @@ model LicenseAuditLog {
 // Token'in kendisi degil SHA-256 ozeti saklanir — sifre hash'lemeyle ayni
 // mantik: veritabani sizarsa eldeki ozetlerle oturum acilamaz.
 
+enum UpdateReleaseStatus {
+  DRAFT
+  PUBLISHED
+  REVOKED
+}
+
+enum UpdateReleaseAuditAction {
+  CREATED
+  PUBLISHED
+  REVOKED
+}
+
+/// Cloud-only Windows release metadata; tenant operasyon verisi tutmaz.
+model UpdateRelease {
+  id                String              @id @default(cuid())
+  version           String              @db.VarChar(128)
+  channel           String              @db.VarChar(32)
+  minCurrentVersion String              @db.VarChar(128)
+  maxCurrentVersion String              @db.VarChar(128)
+  issuedAt          DateTime
+  expiresAt         DateTime
+  migration         Json
+  status            UpdateReleaseStatus @default(DRAFT)
+  /// Canonical JSON tam olarak bu byte dizisi uzerinden Ed25519 imzalanir.
+  manifestPayload   String?             @db.Text
+  signature         String?             @db.VarChar(128)
+  manifestSha256    String?             @db.Char(64)
+  createdBy         String
+  publishedAt       DateTime?
+  revokedAt         DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  artifacts UpdateReleaseArtifact[]
+  auditLogs UpdateReleaseAuditLog[]
+
+  @@unique([channel, version])
+  @@index([channel, status, issuedAt])
+  @@index([status, expiresAt])
+  @@map("update_releases")
+}
+
+model UpdateReleaseArtifact {
+  id        String   @id @default(cuid())
+  releaseId String
+  position  Int
+  role      String   @db.VarChar(32)
+  fileName  String   @db.VarChar(128)
+  platform  String   @db.VarChar(32)
+  sha256    String   @db.Char(64)
+  sizeBytes BigInt
+  /// Artifact binary cloud API'de tutulmaz; yalniz allowlist'li HTTPS metadata.
+  sourceUrl String   @db.VarChar(2048)
+  createdAt DateTime @default(now())
+
+  release UpdateRelease @relation(fields: [releaseId], references: [id], onDelete: Restrict)
+
+  @@unique([releaseId, position])
+  @@unique([releaseId, fileName])
+  @@index([releaseId])
+  @@map("update_release_artifacts")
+}
+
+model UpdateReleaseAuditLog {
+  id         String                   @id @default(cuid())
+  releaseId  String
+  operatorId String
+  action     UpdateReleaseAuditAction
+  metadata   Json                     @default("{}")
+  ipAddress  String?                  @db.VarChar(64)
+  userAgent  String?                  @db.VarChar(512)
+  timestamp  DateTime                 @default(now())
+
+  release UpdateRelease @relation(fields: [releaseId], references: [id], onDelete: Restrict)
+
+  @@index([releaseId, timestamp])
+  @@index([operatorId, timestamp])
+  @@map("update_release_audit_logs")
+}
+
 model RefreshToken {
-  id        String    @id @default(cuid())
-  /** Token'in SHA-256 ozeti. Token'in kendisi hicbir zaman saklanmaz. */
-  tokenHash String    @unique
-  userId    String
-  /** Tenant bazli toplu iptal icin (uyelik bitisi, hesap pasiflestirme). */
-  tenantId  String?
-  expiresAt DateTime
-  /** Dolu ise token gecersiz. Silmek yerine isaretliyoruz ki yeniden
-   *  kullanim denemesi (calinti token belirtisi) tespit edilebilsin. */
-  revokedAt DateTime?
-  /** Hangi token'in yerine uretildigi — rotasyon zincirini takip eder. */
+  id         String    @id @default(cuid())
+  /**
+   * Token'in SHA-256 ozeti. Token'in kendisi hicbir zaman saklanmaz.
+   */
+  tokenHash  String    @unique
+  userId     String
+  /**
+   * Tenant bazli toplu iptal icin (uyelik bitisi, hesap pasiflestirme).
+   */
+  tenantId   String?
+  expiresAt  DateTime
+  /**
+   * Dolu ise token gecersiz. Silmek yerine isaretliyoruz ki yeniden
+   * kullanim denemesi (calinti token belirtisi) tespit edilebilsin.
+   */
+  revokedAt  DateTime?
+  /**
+   * Hangi token'in yerine uretildigi — rotasyon zincirini takip eder.
+   */
   replacedBy String?
-  userAgent String?
-  ip        String?
-  createdAt DateTime  @default(now())
+  userAgent  String?
+  ip         String?
+  createdAt  DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -235,27 +355,26 @@ model RefreshToken {
 // ─── CUSTOMERS ─────────────────────────────────────
 
 model Customer {
-  id        String   @id @default(cuid())
-  tenantId  String
-  name      String
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
   phone       String
   email       String?
   address     String?
   notes       String?
   companyName String?
   taxOffice   String?
-  taxId       String?   // VKN or TCKN
+  taxId       String? // VKN or TCKN
   createdAt   DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt   DateTime @updatedAt
 
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  orders    Order[]
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orders Order[]
 
   @@index([tenantId])
   @@index([tenantId, phone])
   @@map("customers")
 }
-
 
 // ─── MENU ──────────────────────────────────────────
 
@@ -297,14 +416,14 @@ model MenuItem {
   image           String?
   basePrice       Float
   taxRate         Float      @default(20) // KDV Oranı (%)
-  portionOptions  Json       @default("[]")  // PortionOption[]
-  extras          Json       @default("[]")  // MenuExtra[]
+  portionOptions  Json       @default("[]") // PortionOption[]
+  extras          Json       @default("[]") // MenuExtra[]
   department      Department @default(KITCHEN)
-  preparationTime Int?       // minutes
-  calories        Int?       // kcal — kalori bilgisi
-  allergens       Json       @default("[]")  // string[]
-  extraInfo       String?    // Detailed information for modals
-  badge           String?    // e.g., "New", "Popular", "Chef's Recommendation"
+  preparationTime Int? // minutes
+  calories        Int? // kcal — kalori bilgisi
+  allergens       Json       @default("[]") // string[]
+  extraInfo       String? // Detailed information for modals
+  badge           String? // e.g., "New", "Popular", "Chef's Recommendation"
   isActive        Boolean    @default(true)
   sortOrder       Int        @default(0)
   createdAt       DateTime   @default(now())
@@ -327,7 +446,9 @@ enum MenuProjectionOutboxStatus {
   DEAD
 }
 
-/** Local-only transactional full-snapshot publication outbox. */
+/**
+ * Local-only transactional full-snapshot publication outbox.
+ */
 model MenuProjectionOutbox {
   id             String                     @id @default(cuid())
   tenantId       String
@@ -355,10 +476,12 @@ model MenuProjectionOutbox {
   @@map("menu_projection_outbox")
 }
 
-/** Local-only monotonic publication sequence; incremented in the mutation tx. */
+/**
+ * Local-only monotonic publication sequence; incremented in the mutation tx.
+ */
 model MenuProjectionSequence {
-  tenantId String   @id
-  version  Int      @default(0)
+  tenantId  String   @id
+  version   Int      @default(0)
   updatedAt DateTime @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
@@ -366,19 +489,21 @@ model MenuProjectionSequence {
   @@map("menu_projection_sequences")
 }
 
-/** Cloud-only read projection. It has deliberately no FK to operational Tenant. */
+/**
+ * Cloud-only read projection. It has deliberately no FK to operational Tenant.
+ */
 model MenuPublication {
-  tenantId     String   @id
-  publicId     String   @unique @db.VarChar(64)
-  slug         String   @unique @db.VarChar(128)
-  customDomain String?  @unique @db.VarChar(253)
-  version      Int
-  sourceChecksum String @db.Char(64)
-  checksum     String   @db.Char(64)
-  payload      Json
-  publishedAt  DateTime @default(now())
-  disabledAt   DateTime?
-  updatedAt    DateTime @updatedAt
+  tenantId       String    @id
+  publicId       String    @unique @db.VarChar(64)
+  slug           String    @unique @db.VarChar(128)
+  customDomain   String?   @unique @db.VarChar(253)
+  version        Int
+  sourceChecksum String    @db.Char(64)
+  checksum       String    @db.Char(64)
+  payload        Json
+  publishedAt    DateTime  @default(now())
+  disabledAt     DateTime?
+  updatedAt      DateTime  @updatedAt
 
   @@index([checksum])
   @@map("menu_publications")
@@ -405,8 +530,8 @@ model RestaurantTable {
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
-  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  orders Order[]
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orders       Order[]
   reservations Reservation[]
 
   @@unique([tenantId, number])
@@ -445,7 +570,6 @@ model Reservation {
   @@map("reservations")
 }
 
-
 // ─── ORDERS ────────────────────────────────────────
 
 enum OrderStatus {
@@ -459,43 +583,43 @@ enum OrderStatus {
 }
 
 model Order {
-  id              String      @id @default(cuid())
-  tenantId        String
-  tableId         String?
-  customerId      String?
-  waiterId        String?
-  orderNumber     String
-  type            String      @default("DINE_IN") // DINE_IN | TAKEAWAY
-  isDeleted       Boolean     @default(false)
-  status          OrderStatus @default(PENDING)
-  totalAmount     Float       @default(0)
-  taxAmount       Float       @default(0)
-  serviceCharge   Float       @default(0)
-  discountAmount  Float       @default(0)
-  grandTotal      Float       @default(0)
-  paymentMethod   String?
-  paidAmount      Float       @default(0)
-  payments        Json?       @default("[]")
-  notes           String?
-  invoice         Invoice?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  completedAt     DateTime?
+  id             String      @id @default(cuid())
+  tenantId       String
+  tableId        String?
+  customerId     String?
+  waiterId       String?
+  orderNumber    String
+  type           String      @default("DINE_IN") // DINE_IN | TAKEAWAY
+  isDeleted      Boolean     @default(false)
+  status         OrderStatus @default(PENDING)
+  totalAmount    Float       @default(0)
+  taxAmount      Float       @default(0)
+  serviceCharge  Float       @default(0)
+  discountAmount Float       @default(0)
+  grandTotal     Float       @default(0)
+  paymentMethod  String?
+  paidAmount     Float       @default(0)
+  payments       Json?       @default("[]")
+  notes          String?
+  invoice        Invoice?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  completedAt    DateTime?
 
-  tenant    Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  table     RestaurantTable?   @relation(fields: [tableId], references: [id])
-  customer  Customer?          @relation(fields: [customerId], references: [id])
-  waiter    User?              @relation("WaiterOrders", fields: [waiterId], references: [id])
-  subChecks SubCheck[]
+  tenant              Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  table               RestaurantTable? @relation(fields: [tableId], references: [id])
+  customer            Customer?        @relation(fields: [customerId], references: [id])
+  waiter              User?            @relation("WaiterOrders", fields: [waiterId], references: [id])
+  subChecks           SubCheck[]
   idempotencyCommands OrderCommand[]
-  printJobs PrintJob[]
+  printJobs           PrintJob[]
 
+  @@unique([tenantId, orderNumber])
   @@index([tenantId])
   @@index([tableId])
   @@index([customerId])
   @@index([waiterId])
   @@index([tenantId, createdAt])
-  @@unique([tenantId, orderNumber])
   @@map("orders")
 }
 
@@ -609,9 +733,9 @@ model InventoryItem {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  tenant           Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   recipeIngredients RecipeIngredient[]
-  wasteLogs        WasteLog[]
+  wasteLogs         WasteLog[]
 
   @@index([tenantId])
   @@map("inventory_items")
@@ -666,20 +790,20 @@ model WasteLog {
 // ─── PRINTER CONFIG ────────────────────────────────
 
 model PrinterConfig {
-  id          String     @id @default(cuid())
-  tenantId    String
-  name        String     // e.g. "Mutfak Yazıcısı", "Bar Yazıcısı"
-  type        String     @default("ESCPOS") // ESCPOS | KDS
-  ipAddress   String?
-  port        Int?
-  usbVendorId String?
+  id           String       @id @default(cuid())
+  tenantId     String
+  name         String // e.g. "Mutfak Yazıcısı", "Bar Yazıcısı"
+  type         String       @default("ESCPOS") // ESCPOS | KDS
+  ipAddress    String?
+  port         Int?
+  usbVendorId  String?
   usbProductId String?
-  departments Department[] // Which departments route to this printer
-  isActive    Boolean    @default(true)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  departments  Department[] // Which departments route to this printer
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   printJobs PrintJob[]
 
   @@index([tenantId])
@@ -724,12 +848,12 @@ model PrintJob {
   retainUntil    DateTime?
   reprintOfId    String?
 
-  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  order     Order?         @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  printer   PrinterConfig? @relation(fields: [printerId], references: [id], onDelete: SetNull)
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  order         Order?            @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  printer       PrinterConfig?    @relation(fields: [printerId], references: [id], onDelete: SetNull)
   attemptsAudit PrintJobAttempt[]
-  reprintOf  PrintJob?     @relation("PrintJobReprints", fields: [reprintOfId], references: [id], onDelete: SetNull)
-  reprints   PrintJob[]    @relation("PrintJobReprints")
+  reprintOf     PrintJob?         @relation("PrintJobReprints", fields: [reprintOfId], references: [id], onDelete: SetNull)
+  reprints      PrintJob[]        @relation("PrintJobReprints")
 
   @@unique([tenantId, idempotencyKey])
   @@index([status, nextAttemptAt])
@@ -743,16 +867,16 @@ model PrintJob {
 }
 
 model PrintJobAttempt {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   jobId            String
   attemptNumber    Int
-  leaseOwner       String   @db.VarChar(96)
-  dispatchToken    String   @db.VarChar(64)
-  dispatchedAt     DateTime @default(now())
+  leaseOwner       String    @db.VarChar(96)
+  dispatchToken    String    @db.VarChar(64)
+  dispatchedAt     DateTime  @default(now())
   acknowledgedAt   DateTime?
   success          Boolean?
-  error            String?  @db.VarChar(1000)
-  ambiguousAckLoss Boolean  @default(false)
+  error            String?   @db.VarChar(1000)
+  ambiguousAckLoss Boolean   @default(false)
 
   job PrintJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
@@ -765,14 +889,14 @@ model PrintJobAttempt {
 // ─── CMS & MARKETING (SITE SHOWCASE) ───────────────
 
 model GalleryImage {
-  id          String   @id @default(cuid())
-  tenantId    String
-  url         String
-  caption     String?
-  sortOrder   Int      @default(0)
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  tenantId  String
+  url       String
+  caption   String?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -787,17 +911,17 @@ enum MediaType {
 }
 
 model Story {
-  id          String    @id @default(cuid())
-  tenantId    String
-  title       String?
-  mediaUrl    String
-  mediaType   MediaType @default(IMAGE)
-  duration    Int       @default(5000)
-  sortOrder   Int       @default(0)
-  isActive    Boolean   @default(true)
-  expiresAt   DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id        String    @id @default(cuid())
+  tenantId  String
+  title     String?
+  mediaUrl  String
+  mediaType MediaType @default(IMAGE)
+  duration  Int       @default(5000)
+  sortOrder Int       @default(0)
+  isActive  Boolean   @default(true)
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -852,10 +976,10 @@ model Invoice {
   id           String        @id @default(cuid())
   tenantId     String
   orderId      String        @unique
-  uuid         String        // ETTN
-  invoiceNo    String?       // Fatura No (e.g. UYM2026000000001)
+  uuid         String // ETTN
+  invoiceNo    String? // Fatura No (e.g. UYM2026000000001)
   status       InvoiceStatus @default(DRAFT)
-  pdfUrl       String?       // PDF or HTML link from Integrator
+  pdfUrl       String? // PDF or HTML link from Integrator
   totalAmount  Float
   taxAmount    Float
   errorMessage String?

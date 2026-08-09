@@ -5,6 +5,7 @@ import { ThemeProvider } from '../context/ThemeContext';
 export const metadata: Metadata = {
   title: 'QR Menü — REST_OTM',
   description: 'Restoranınızın dijital menüsü. Sipariş verin ve garson çağırın.',
+  referrer: 'no-referrer',
 };
 
 export const viewport: Viewport = {

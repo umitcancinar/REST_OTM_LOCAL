@@ -196,6 +196,12 @@ ihlal edemiyor.
 
 ## Y-18 · Masa QR menüsündeki yerel “garson çağır” sözleşmesini tamamla
 
+**Durum (08.08.2026): KOD/OTOMASYON TAMAMLANDI.** Mevcut menu UI korunarak
+local `/menu`, loopback menu child, same-origin local waiter call, kurulum başına
+HMAC token, tenant+masa DB doğrulaması ve rate limit uygulandı. Cloud legacy
+`/<slug>` build yolu korunuyor. Kalan kabul: gerçek telefon + gerçek PostgreSQL
+tenant/masa verisi + Windows installer pilotu.
+
 **Bulgu:** Mevcut `MenuClient` düğmesi korunuyor ancak sayfa `tableId` değerini
 client'a aktarmıyor. Cloud public API operasyonel waiter write route'u bilerek
 barındırmıyor; HTTPS cloud sayfadan ham HTTP LAN API'ye fetch de tarayıcı mixed
@@ -213,6 +219,11 @@ açıkça test ediliyor.
 ---
 
 ## Y-19 · Native Windows production blocker'larını kapat
+
+**Durum (08.08.2026): KAYNAK TEMELİ İLERLEDİ.** DPAPI LocalMachine, CSPRNG,
+exact path/reparse kontrolü, restricted DACL, atomik receipt/hash binding ve
+strict production probe kodlandı. `production_ready=false` kalıyor; aşağıdaki
+gerçek Windows kapıları hâlâ zorunlu.
 
 - Rust crate'i Windows target'ta derle ve unit/integration testlerini çalıştır.
 - Native ACL + `CryptProtectData` provisioning backend'ini tamamla.

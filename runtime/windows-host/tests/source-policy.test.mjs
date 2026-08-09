@@ -36,6 +36,7 @@ test('network contract is loopback-only except one fixed gateway', async () => {
   assert.match(config, /address\.is_loopback\(\)/);
   assert.match(config, /self\.postgres\.port != 55432/);
   assert.match(config, /self\.api\.port != 4100/);
+  assert.match(config, /self\.menu\.port != 3300/);
   assert.match(config, /self\.gateway\.host != "0\.0\.0\.0"/);
   assert.match(config, /self\.gateway\.port != 8787/);
   assert.match(config, /self\.gateway\.firewall_profile != "Private"/);
@@ -51,14 +52,90 @@ test('supervisor has crash-loop, graceful stop and job-tree contracts', async ()
   assert.match(supervisor, /send_shutdown_http/);
   assert.match(supervisor, /terminate_tree/);
   assert.match(platform, /JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE/);
+  assert.match(supervisor, /external_stop/);
+  assert.match(supervisor, /monitor_stop/);
 });
 
-test('bootstrap helper refuses false success until native backend exists', async () => {
+test('native updater independently reverifies Ed25519 envelope, canonical manifest and artifacts', async () => {
+  const update = await read('src/update.rs');
+  const lib = await read('src/lib.rs');
+  assert.match(lib, /pub mod update/);
+  assert.match(update, /VerifyingKey::from_bytes/);
+  assert.match(update, /verifying_key\.verify/);
+  assert.match(update, /canonical_json\(&value\)/);
+  assert.match(update, /sha256_file\(&staged\.absolute_path\)/);
+  assert.match(update, /license and update trust roots reuse the same Ed25519 key/);
+  assert.match(update, /update_der == license_der/);
+  assert.match(update, /manifest time window is expired, future-dated or too long/);
+});
+
+test('update apply uses immutable release, write-through pointer, health gate and rollback journal', async () => {
+  const runtime = await read('src/runtime.rs');
+  const update = await read('src/update.rs');
+  assert.match(update, /install_root\.join\("releases"\)/);
+  assert.match(update, /TransactionPhase::Prepared/);
+  assert.match(update, /TransactionPhase::Activated/);
+  assert.match(update, /TransactionPhase::HealthChecking/);
+  assert.match(update, /TransactionPhase::Committed/);
+  assert.match(update, /MOVEFILE_REPLACE_EXISTING \| MOVEFILE_WRITE_THROUGH/);
+  assert.match(update, /wait_for_candidate_health/);
+  assert.match(update, /HEALTH_STABILITY/);
+  assert.match(update, /restore_postgres_snapshot/);
+  assert.match(runtime, /candidate_supervisor\.request_stop\(\);[\s\S]*candidate_supervisor\.wait\(\)\?;[\s\S]*update\.rollback/);
+  assert.match(runtime, /wait_for_candidate_health[\s\S]*update\.commit\(\)/);
+});
+
+test('update payload cannot carry data or trust roots and schema changes fail closed without runner', async () => {
+  const update = await read('src/update.rs');
+  assert.match(update, /\["api", "admin", "waiter", "menu", "gateway", "print-agent", "postgres"\]/);
+  assert.match(update, /ZIP symlink entry rejected/);
+  assert.match(update, /Windows case-insensitive rules/);
+  assert.match(update, /schema-changing update rejected: no hash-bound fixed-command migration runner/);
+  assert.match(update, /PostgreSQL is not proven offline; raw update safety snapshot refused/);
+  assert.match(update, /source\.join\("postmaster\.pid"\)\.exists\(\)/);
+  assert.match(update, /remove_directory_if_exists\(&self\.journal\.safety_backup_directory\)/);
+});
+
+test('bootstrap binds installed APP_VERSION to MSI product version', async () => {
+  const bootstrap = await read('src/bootstrap.rs');
+  const native = await read('src/native_provisioning.rs');
+  const wix = await readFile(path.join(root, '../../packaging/windows/wix/Product.wxs'), 'utf8');
+  assert.match(bootstrap, /product_version: String/);
+  assert.match(bootstrap, /--product-version/);
+  assert.match(native, /\("APP_VERSION"\.into\(\), request\.product_version\.clone\(\)\)/);
+  assert.match(wix, /--product-version &quot;\$\(var\.ProductVersion\)&quot;/);
+});
+
+test('bootstrap helper uses native backend only in Windows builds and stays fail-closed elsewhere', async () => {
   const bootstrap = await read('src/bootstrap.rs');
   const binary = await read('src/bin/installer_bootstrap.rs');
   assert.match(bootstrap, /UnavailableBootstrapBackend/);
   assert.match(bootstrap, /refusing success/);
+  assert.match(binary, /cfg\(windows\)[\s\S]*NativeWindowsBootstrapBackend/);
+  assert.match(binary, /cfg\(not\(windows\)\)[\s\S]*UnavailableBootstrapBackend/);
   assert.match(binary, /ExitCode::from\(78\)/);
+});
+
+test('native provisioning is DPAPI LocalMachine, restrictive-DACL and reparse fail-closed', async () => {
+  const native = await read('src/native_provisioning.rs');
+  const platform = await read('src/platform.rs');
+  const wix = await readFile(path.join(root, '../../packaging/windows/wix/Product.wxs'), 'utf8');
+
+  assert.match(platform, /CryptProtectData/);
+  assert.match(platform, /CRYPTPROTECT_LOCAL_MACHINE/);
+  assert.match(native, /ProgramW6432/);
+  assert.match(native, /ProgramData/);
+  assert.match(native, /FILE_ATTRIBUTE_REPARSE_POINT/);
+  assert.match(native, /SetFileSecurityW/);
+  assert.match(native, /LookupAccountNameW/);
+  assert.match(native, /NT SERVICE\\\\\{SERVICE_NAME\}/);
+  assert.match(native, /MOVEFILE_WRITE_THROUGH/);
+  assert.match(native, /sync_all/);
+  assert.match(native, /struct Rollback/);
+  assert.match(native, /load_verified_bootstrap/);
+  assert.match(wix, /ServiceSid="restricted"/);
+  assert.match(wix, /After="InstallServices"/);
+  assert.match(wix, /--menu-port 3300/);
 });
 
 test('repository source contains no embedded private key or obvious secret assignment', async () => {

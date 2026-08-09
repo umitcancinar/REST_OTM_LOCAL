@@ -71,7 +71,7 @@ Kalan production paketleme adimlari:
 ## Windows local payload assembler
 
 `assemble-windows-payload.mjs`, audited `build/stage/local` API closure'ini,
-admin/waiter Next standalone + static + public dosyalarini, gateway/print-agent
+admin/waiter/menu Next standalone + static + public dosyalarini, gateway/print-agent
 dist'lerini ve print-agent icin `receipt-core` runtime'ini tek yeni payload
 dizininde toplar. Uygulama kaynaklarini rebuild veya redesign etmez. Exact
 runtime girisleri su yollarda kalir:
@@ -84,9 +84,11 @@ postgres/bin/pg_dump.exe
 api/restotm-api.exe                 api/runtime/...
 admin/restotm-admin.exe             admin/runtime/...
 waiter/restotm-waiter.exe           waiter/runtime/...
+menu/restotm-menu.exe               menu/runtime/...
 print-agent/restotm-print-agent.exe print-agent/dist/... + receipt-core
 gateway/restotm-lan-gateway.exe     gateway/dist/...
 config/license-public-key.pem
+config/update-public-key.pem
 installer-contract.json
 artifact-manifest.json
 ```
@@ -103,11 +105,12 @@ Production modu su kosullardan biri eksikse hic payload uretmez:
   NPM/Prisma runtime closure'i bundled olarak isaretlenmis olmali;
 - installer contract exact child role/path sirasi ile
   `native_bootstrap.production_ready=true` tasimali;
-- native host/bootstrap, PostgreSQL, pg_dump ve bes uygulama launcher'i gercek
+- native host/bootstrap, PostgreSQL, pg_dump ve alti uygulama launcher'i gercek
   Windows PE olmali;
 - payload'a girecek **tum** PE/MZ dosyalarinin (`.exe/.dll/.node` dahil)
   Authenticode durumu Windows build makinesinde `Valid` olmali;
-- lisans anahtari parse edilebilen Ed25519 public key olmali; private key, baska
+- lisans ve signed-update anahtarlari ayri, parse edilebilen Ed25519 public key
+  olmali; private key, iki rolde ayni public key veya baska
   `.pem/.key/.pfx/.p12/.jks` kabul edilmez;
 - symlink/special file, path traversal veya case-insensitive path collision;
   `.ts/.tsx/.map`, `.env*`, `.git`, test/fixture/coverage ve source-map marker

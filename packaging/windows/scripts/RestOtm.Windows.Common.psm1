@@ -128,6 +128,25 @@ function New-RestOtmRandomSecret {
     return [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
 }
 
+function New-RestOtmCanonicalBase64Secret {
+    [CmdletBinding()]
+    param(
+        [ValidateRange(32, 128)]
+        [int]$ByteCount = 32
+    )
+
+    $bytes = New-Object byte[] $ByteCount
+    $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $generator.GetBytes($bytes)
+        return [Convert]::ToBase64String($bytes)
+    }
+    finally {
+        [Array]::Clear($bytes, 0, $bytes.Length)
+        $generator.Dispose()
+    }
+}
+
 function Protect-RestOtmMachineSecret {
     [CmdletBinding()]
     param(
@@ -308,6 +327,7 @@ function Assert-RestOtmInstallerContract {
         first_run_provisioning = $true
         uninstall_preserves_customer_data = $true
         license_public_key_relative_path = 'config/license-public-key.pem'
+        update_public_key_relative_path = 'config/update-public-key.pem'
     }
     foreach ($entry in $requiredScalars.GetEnumerator()) {
         $property = $contract.PSObject.Properties[[string]$entry.Key]
@@ -456,6 +476,7 @@ Export-ModuleMember -Function @(
     'Assert-RestOtmAllowedPath',
     'Assert-RestOtmPort',
     'New-RestOtmRandomSecret',
+    'New-RestOtmCanonicalBase64Secret',
     'Protect-RestOtmMachineSecret',
     'Write-RestOtmAtomicUtf8File',
     'Assert-RestOtmArtifactManifest',

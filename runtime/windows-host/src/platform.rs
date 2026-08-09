@@ -183,6 +183,66 @@ pub fn dpapi_unprotect(encrypted: &[u8]) -> Result<Vec<u8>> {
     }
 }
 
+#[cfg(windows)]
+pub fn dpapi_protect_local_machine(clear: &[u8]) -> Result<Vec<u8>> {
+    use std::ptr::{copy_nonoverlapping, null_mut, write_bytes};
+    use windows_sys::Win32::Security::Cryptography::{
+        CryptProtectData, CRYPTPROTECT_LOCAL_MACHINE, CRYPTPROTECT_UI_FORBIDDEN,
+        CRYPT_INTEGER_BLOB,
+    };
+    use windows_sys::Win32::System::Memory::LocalFree;
+
+    if clear.is_empty() || clear.len() > u32::MAX as usize {
+        return Err(HostError::InvalidBootstrap(
+            "DPAPI cleartext length is invalid".into(),
+        ));
+    }
+    let entropy_bytes = b"RESTOTM/runtime-secrets/v1";
+    let mut input = CRYPT_INTEGER_BLOB {
+        cbData: clear.len() as u32,
+        pbData: clear.as_ptr() as *mut u8,
+    };
+    let mut entropy = CRYPT_INTEGER_BLOB {
+        cbData: entropy_bytes.len() as u32,
+        pbData: entropy_bytes.as_ptr() as *mut u8,
+    };
+    let mut output = CRYPT_INTEGER_BLOB {
+        cbData: 0,
+        pbData: null_mut(),
+    };
+
+    unsafe {
+        if CryptProtectData(
+            &mut input,
+            null_mut(),
+            &mut entropy,
+            null_mut(),
+            null_mut(),
+            CRYPTPROTECT_UI_FORBIDDEN | CRYPTPROTECT_LOCAL_MACHINE,
+            &mut output,
+        ) == 0
+        {
+            return Err(HostError::io(
+                "DPAPI CryptProtectData(LocalMachine)",
+                std::io::Error::last_os_error(),
+            ));
+        }
+        if output.pbData.is_null() || output.cbData == 0 {
+            if !output.pbData.is_null() {
+                LocalFree(output.pbData as _);
+            }
+            return Err(HostError::InvalidBootstrap(
+                "DPAPI returned an empty envelope".into(),
+            ));
+        }
+        let mut encrypted = vec![0_u8; output.cbData as usize];
+        copy_nonoverlapping(output.pbData, encrypted.as_mut_ptr(), encrypted.len());
+        write_bytes(output.pbData, 0, output.cbData as usize);
+        LocalFree(output.pbData as _);
+        Ok(encrypted)
+    }
+}
+
 #[cfg(not(windows))]
 pub fn dpapi_unprotect(_encrypted: &[u8]) -> Result<Vec<u8>> {
     Err(HostError::UnsupportedPlatform(

@@ -1,10 +1,22 @@
 import { createGatewayServer } from './gateway';
 import { loadGatewayConfig } from './config';
+import { startMdnsDiscovery, type MdnsDiscovery } from './mdns';
 
 const config = loadGatewayConfig();
-const server = createGatewayServer(config);
+let discovery: MdnsDiscovery | undefined;
+const server = createGatewayServer(config, {
+  discoveryStatus: () => discovery?.status() ?? {
+    state: config.mdns.enabled ? 'probing' : 'disabled',
+    hostname: config.mdns.enabled ? config.mdns.hostname : null,
+    serviceType: config.mdns.serviceType,
+    port: config.mdns.port,
+    addresses: 0,
+    reason: null,
+  },
+});
 
 server.listen(config.port, config.bindHost, () => {
+  discovery = startMdnsDiscovery(config.mdns);
   console.log(JSON.stringify({
     level: 'info',
     event: 'gateway.started',
@@ -14,6 +26,7 @@ server.listen(config.port, config.bindHost, () => {
 });
 
 const shutdown = (signal: string): void => {
+  discovery?.stop();
   server.close((error) => {
     if (error) {
       console.error(JSON.stringify({ level: 'error', event: 'gateway.shutdown_failed', signal }));

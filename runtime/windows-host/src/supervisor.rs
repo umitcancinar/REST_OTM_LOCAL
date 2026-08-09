@@ -31,8 +31,12 @@ impl RunningSupervisor {
     pub fn start_with_stop(
         config: HostConfig,
         secrets: Arc<dyn SecretProvider>,
-        stop: Arc<AtomicBool>,
+        external_stop: Arc<AtomicBool>,
     ) -> Result<Self> {
+        // The SCM/console cancellation signal is deliberately separate from the
+        // supervisor's own stop flag. An update candidate can therefore be
+        // stopped and rolled back without losing a simultaneous external stop.
+        let stop = Arc::new(AtomicBool::new(false));
         config.validate()?;
         let health = HealthRegistry::new(
             config.health_file.clone(),
@@ -40,7 +44,17 @@ impl RunningSupervisor {
             config.children.iter().map(|child| child.name.clone()),
         )?;
         let (fatal_tx, fatal_rx) = mpsc::channel();
-        let mut workers = Vec::with_capacity(config.children.len());
+        let mut workers = Vec::with_capacity(config.children.len() + 1);
+        let monitor_stop = stop.clone();
+        workers.push(thread::spawn(move || {
+            while !monitor_stop.load(Ordering::SeqCst) {
+                if external_stop.load(Ordering::SeqCst) {
+                    monitor_stop.store(true, Ordering::SeqCst);
+                    break;
+                }
+                thread::sleep(POLL_INTERVAL);
+            }
+        }));
 
         for index in config.startup_order()? {
             let spec = config.children[index].clone();
@@ -120,6 +134,10 @@ impl RunningSupervisor {
 
     pub fn request_stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
+    }
+
+    pub fn health_registry(&self) -> HealthRegistry {
+        self.health.clone()
     }
 
     pub fn wait(mut self) -> Result<()> {

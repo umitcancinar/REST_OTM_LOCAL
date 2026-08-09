@@ -2,6 +2,7 @@ import http, { type IncomingHttpHeaders, type IncomingMessage, type ServerRespon
 import type { Duplex } from 'node:stream';
 import type { GatewayConfig, GatewayTarget, GatewayTargetName } from './config';
 import { isPrivateIpHost } from './config';
+import type { MdnsStatus } from './mdns';
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
@@ -38,6 +39,7 @@ function requestPath(request: IncomingMessage): string | undefined {
 export function classifyGatewayRoute(pathname: string): GatewayTargetName {
   if (pathname === '/api' || pathname.startsWith('/api/') || pathname === '/socket.io' || pathname.startsWith('/socket.io/')) return 'api';
   if (pathname === '/garson' || pathname.startsWith('/garson/')) return 'waiter';
+  if (pathname === '/menu' || pathname.startsWith('/menu/')) return 'menu';
   return 'admin';
 }
 
@@ -191,7 +193,10 @@ function proxyWebSocket(request: IncomingMessage, clientSocket: Duplex, head: Bu
   upstreamRequest.end();
 }
 
-export function createGatewayServer(config: GatewayConfig): http.Server {
+export function createGatewayServer(
+  config: GatewayConfig,
+  options: { discoveryStatus?: () => MdnsStatus } = {},
+): http.Server {
   const server = http.createServer({
     maxHeaderSize: 16 * 1024,
     requireHostHeader: true,
@@ -218,7 +223,11 @@ export function createGatewayServer(config: GatewayConfig): http.Server {
         'cache-control': 'no-store',
         'x-content-type-options': 'nosniff',
       });
-      response.end(JSON.stringify({ status: 'ok', service: 'restotm-lan-gateway' }));
+      response.end(JSON.stringify({
+        status: 'ok',
+        service: 'restotm-lan-gateway',
+        ...(options.discoveryStatus ? { discovery: options.discoveryStatus() } : {}),
+      }));
       return;
     }
 

@@ -3,6 +3,8 @@ import { z } from 'zod';
 
 export const MENU_PUBLICATION_SCHEMA_VERSION = 1;
 export const MENU_PUBLICATION_MAX_BYTES = 512 * 1024;
+export const MENU_PUBLICATION_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+export const MENU_PUBLICATION_SLUG_MAX_LENGTH = 128;
 
 const text = (max: number) => z.string().trim().max(max);
 const nullableText = (max: number) => text(max).nullable();
@@ -56,7 +58,9 @@ const httpsUrl = z.string().max(2048).url().refine(isSafePublicHttpsUrl, {
 });
 const nullableHttpsUrl = httpsUrl.nullable();
 const publicId = z.string().regex(/^[a-f0-9]{32}$/);
-const slug = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(128);
+const slug = z.string()
+  .regex(MENU_PUBLICATION_SLUG_PATTERN)
+  .max(MENU_PUBLICATION_SLUG_MAX_LENGTH);
 const publicHostname = z.string().max(253).refine(isSafePublicHostname);
 const color = z.string().regex(/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/);
 const fontFamily = z.string().regex(/^[A-Za-z0-9 ,_'"-]{1,80}$/);

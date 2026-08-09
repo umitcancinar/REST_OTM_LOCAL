@@ -20,6 +20,9 @@ pub enum HostError {
     #[error("essential child entered crash loop: {0}")]
     CrashLoop(String),
 
+    #[error("signed update rejected: {0}")]
+    UpdateRejected(String),
+
     #[error("unsupported platform operation: {0}")]
     UnsupportedPlatform(String),
 

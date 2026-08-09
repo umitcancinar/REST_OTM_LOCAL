@@ -1,6 +1,6 @@
 import { isIP } from 'node:net';
 
-export type GatewayTargetName = 'api' | 'admin' | 'waiter';
+export type GatewayTargetName = 'api' | 'admin' | 'waiter' | 'menu';
 
 export interface GatewayTarget {
   name: GatewayTargetName;
@@ -16,6 +16,16 @@ export interface GatewayConfig {
   allowPrivateIpHosts: boolean;
   upstreamTimeoutMs: number;
   maxContentLengthBytes: number;
+  mdns: MdnsConfig;
+}
+
+export interface MdnsConfig {
+  enabled: boolean;
+  hostname: string;
+  instanceName: string;
+  serviceType: '_rest-otm._tcp.local';
+  port: number;
+  ttlSeconds: number;
 }
 
 function integer(name: string, raw: string | undefined, fallback: number, min: number, max: number): number {
@@ -62,6 +72,30 @@ function normalizeAllowedHost(value: string): string {
   return host.replace(/^\[|\]$/g, '');
 }
 
+function boolean(name: string, raw: string | undefined, fallback: boolean): boolean {
+  if (raw === undefined || raw === '') return fallback;
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  throw new Error(`${name} yalniz true veya false olabilir.`);
+}
+
+export function normalizeMdnsHostname(value: string): string {
+  const hostname = value.trim().toLowerCase().replace(/\.$/, '');
+  if (
+    hostname.length > 253
+    || !hostname.endsWith('.local')
+    || isIP(hostname) !== 0
+    || hostname.split('.').some((label) => (
+      label.length < 1
+      || label.length > 63
+      || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label)
+    ))
+  ) {
+    throw new Error('GATEWAY_MDNS_HOSTNAME gecerli bir .local hostname olmali.');
+  }
+  return hostname;
+}
+
 export function isPrivateIpHost(hostname: string): boolean {
   const normalized = hostname.replace(/^\[|\]$/g, '').toLowerCase();
   const family = isIP(normalized);
@@ -105,18 +139,43 @@ export function loadGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
     '::1',
     ...configuredHosts,
   ]);
+  const mdnsEnabled = boolean('GATEWAY_MDNS_ENABLED', env.GATEWAY_MDNS_ENABLED, isProduction);
+  const discoveredMdnsHostname = env.GATEWAY_MDNS_HOSTNAME
+    || configuredHosts.find((host) => host.endsWith('.local'))
+    || '';
+  if (mdnsEnabled && !discoveredMdnsHostname) {
+    throw new Error('mDNS etkinse GATEWAY_MDNS_HOSTNAME veya allowed .local host zorunludur.');
+  }
+  const mdnsHostname = discoveredMdnsHostname
+    ? normalizeMdnsHostname(discoveredMdnsHostname)
+    : 'restotm-disabled.local';
+  if (mdnsEnabled && !allowedHosts.has(mdnsHostname)) {
+    throw new Error('GATEWAY_MDNS_HOSTNAME ayni zamanda GATEWAY_ALLOWED_HOSTS icinde olmali.');
+  }
+  const instanceSuffix = mdnsHostname.split('.')[0]?.replace(/^restotm-?/, '') || 'local';
+  const instanceName = `REST_OTM-${instanceSuffix}`.slice(0, 63);
+  const gatewayPort = integer('GATEWAY_PORT', env.GATEWAY_PORT, 8787, 1, 65535);
 
   return {
     bindHost: env.GATEWAY_BIND_HOST || (isProduction ? '0.0.0.0' : '127.0.0.1'),
-    port: integer('GATEWAY_PORT', env.GATEWAY_PORT, 8787, 1, 65535),
+    port: gatewayPort,
     targets: {
       api: parseTarget('api', env.GATEWAY_API_TARGET, 4100),
       admin: parseTarget('admin', env.GATEWAY_ADMIN_TARGET, 3100),
       waiter: parseTarget('waiter', env.GATEWAY_WAITER_TARGET, 3200),
+      menu: parseTarget('menu', env.GATEWAY_MENU_TARGET, 3300),
     },
     allowedHosts,
     allowPrivateIpHosts: env.GATEWAY_ALLOW_PRIVATE_IP_HOSTS !== 'false',
     upstreamTimeoutMs: integer('GATEWAY_UPSTREAM_TIMEOUT_MS', env.GATEWAY_UPSTREAM_TIMEOUT_MS, 30_000, 1_000, 300_000),
     maxContentLengthBytes: integer('GATEWAY_MAX_CONTENT_LENGTH_BYTES', env.GATEWAY_MAX_CONTENT_LENGTH_BYTES, 10 * 1024 * 1024, 1024, 100 * 1024 * 1024),
+    mdns: {
+      enabled: mdnsEnabled,
+      hostname: mdnsHostname,
+      instanceName,
+      serviceType: '_rest-otm._tcp.local',
+      port: gatewayPort,
+      ttlSeconds: integer('GATEWAY_MDNS_TTL_SECONDS', env.GATEWAY_MDNS_TTL_SECONDS, 120, 30, 4_500),
+    },
   };
 }

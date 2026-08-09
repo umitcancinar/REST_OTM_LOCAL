@@ -18,6 +18,12 @@ services:
         sync: false
       - key: LICENSE_PRIVATE_KEY
         sync: false
+      - key: UPDATE_SIGNING_PRIVATE_KEY
+        sync: false
+      - key: UPDATE_SIGNING_PUBLIC_KEY
+        sync: false
+      - key: UPDATE_ARTIFACT_ALLOWED_ORIGINS
+        sync: false
       # DIKKAT: Bu isimler env.shared.ts/env.cloud.ts icinde okunan isimlerle
       # birebir ayni olmak zorunda. Daha once burada JWT_SECRET / ADMIN_SECRET
       # yaziyordu; kod ise JWT_ACCESS_SECRET / JWT_REFRESH_SECRET okuyordu.

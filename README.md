@@ -5,19 +5,17 @@ Restoranın operasyonel verisini kendi bilgisayarında tutan; patron, kasa, mutf
 ## 🏗️ Mimari
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                  Müşteri Bilgisayarı                    │
-├──────────────┬──────────────┬────────────┬───────────────┤
-│   Admin      │  Garson PWA  │  Backend   │  Print Agent  │
-│   Dashboard  │  (LAN/PWA)   │  API + WS  │  (Local)      │
-│   Next.js    │  Next.js PWA │  Express   │  Node.js      │
-│   :3000      │  :3001       │  :4000     │  WebSocket    │
-└──────────────┴──────────────┴─────┬──────┴───────────────┘
-                                    │
-                    ┌───────────────┼───────────────┐
-                    │               │               │
-              PostgreSQL      Lisans Guard     Socket.io
-             (127.0.0.1)      (signed lease)  (Realtime)
+Garson / patron / QR menü cihazları
+                 │
+        Private LAN TCP 8787
+                 │
+          REST_OTM Gateway
+                 │ sabit loopback upstream'ler
+     ┌───────────┼───────────┬───────────┬────────────┐
+ API + WS      Admin       Garson      QR Menü     Print Agent
+ :4100         :3100       :3200        :3300       :4190
+     │
+ PostgreSQL :55432 (loopback-only)
 ```
 
 Yerel ağa yalnızca uygulama geçidi açılır; PostgreSQL ve iç servisler loopback arayüzünde kalır. Garson cihazları kurulum ekranında gösterilen yerel IP/QR adresinden bağlanır. Saatlik lisans yoklaması başarısız olsa bile imzalı çevrimdış süre dolana kadar operasyon sürer.
@@ -77,9 +75,10 @@ Bu komut geliştirme profilinde tüm uygulamaları paralel olarak başlatır:
 - **API Health:** http://localhost:4000/api/health
 
 > Bu depo henüz son kullanıcı kurulum paketi değildir. API cloud/local artifact
-> ayrımı, lisans kapısı ve PostgreSQL yedek runtime'ı hazırdır; imzalı Windows
-> supervisor/kurucu, paketlenmiş PostgreSQL, yerel ağ geçidi, geri yükleme testi
-> ve imzalı güncelleme tamamlanmadan müşteriye kurulamaz. Güncel durum için
+> ayrımı, lisans kapısı, PostgreSQL yedek runtime'ı, LAN gateway ve imzalı
+> güncellemenin güvenli staging katmanı hazırdır; native apply/health/rollback,
+> paketlenmiş PostgreSQL ve temiz Windows kabulü tamamlanmadan müşteriye
+> kurulamaz. Güncel durum için
 > `raporlar/06_NELER_YAPTIM_NELER_YAPACAGIM.md` dosyasına bakın.
 
 ## 📁 Proje Yapısı
@@ -90,6 +89,8 @@ REST_OTM/
 │   ├── api/            # Backend API + WebSocket (Express + Prisma)
 │   ├── admin/          # Admin Dashboard (Next.js)
 │   ├── waiter/         # LAN üzerinden Garson PWA (Next.js)
+│   ├── menu/           # Mevcut public/local QR menü (Next.js)
+│   ├── gateway/        # LAN'da tek açık HTTP/WebSocket geçidi
 │   └── print-agent/    # Local Print Agent (Node.js)
 ├── packages/
 │   ├── shared-types/   # Ortak TypeScript tipleri
@@ -112,7 +113,10 @@ REST_OTM/
 - ✅ `.env` dosyası Git'ten hariç tutulmuş
 - ✅ Ed25519 imzalı lisans ve çevrimdış süre sınırı
 
-PostgreSQL RLS, Windows servis izolasyonu, Authenticode, TPM/DPAPI cihaz anahtarı ve imzalı güncelleme henüz tamamlanmadığı için güvenlik listesindeki hedefler tamamlanmış gibi kabul edilmemelidir.
+Windows servis izolasyonu ve DPAPI kaynak kontratı mevcuttur; Authenticode,
+TPM/CNG cihaz anahtarı, native update apply/rollback ve gerçek Windows 11 kabulü
+tamamlanmadığı için ürün henüz üretime hazır kabul edilmez. Ayrıntılı tehdit
+modeli ve çıkış kapısı için [SECURITY.md](SECURITY.md) dosyasına bakın.
 
 ## 🛠️ Kullanışlı Komutlar
 

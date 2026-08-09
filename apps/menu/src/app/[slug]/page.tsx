@@ -2,8 +2,15 @@ import { getRestaurantMenu } from '../../lib/api';
 import MenuClient from './MenuClient';
 
 // Next.js Server Component - Direkt sunucuda veriyi çeker
-export default async function MenuPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function MenuPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ tableId?: string; tableToken?: string }>;
+}) {
   const { slug } = await params;
+  const { tableId, tableToken } = await searchParams;
   
   // 1. URL'den restoranın slug'ını al ve API'ye sor
   const menuData = await getRestaurantMenu(slug);
@@ -22,6 +29,8 @@ export default async function MenuPage({ params }: { params: Promise<{ slug: str
   return (
     <MenuClient 
       tenantSlug={slug}
+      tableId={tableId}
+      tableToken={tableToken}
       menuData={menuData.categories}
       restaurantInfo={{ name: menuData.restaurantName }}
     />

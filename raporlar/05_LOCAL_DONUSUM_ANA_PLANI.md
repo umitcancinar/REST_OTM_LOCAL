@@ -273,7 +273,7 @@ Güncelleme:
 
 - [ ] Bundled loopback PostgreSQL
 - [x] Admin/waiter standalone build
-- [ ] Local API + Socket.IO + print-agent gerçek Windows supervision kabulü
+- [ ] Local API + Socket.IO + menu + print-agent gerçek Windows supervision kabulü
 - [x] Tek origin gateway
 - [ ] Firewall, mDNS advertising ve Tauri UI (IP fallback + garson QR backend tamam)
 - [x] WiX/Burn, service recovery, DPAPI, ProgramData ve firewall güvenlik iskeleti
@@ -283,7 +283,7 @@ Güncelleme:
 - [x] Order/menu/print transactional outbox
 - [x] Atomik PostgreSQL yedek, hash ve retention runtime
 - [x] Şifreleme, ayrı klasör/volume replica ve non-destructive restore doğrulama
-- [ ] İmzalı update ve rollback
+- [ ] İmzalı update stage/handoff tamam; native apply, health gate ve rollback
 - [ ] Health/readiness paneli
 
 ### Faz 5 — installer ve saha pilotu
@@ -306,7 +306,7 @@ Güncelleme:
 | Kod gizleme/paketleme | Fiziksel API split ve fail-closed audit geçti; native/UI payload bundling kaldı |
 | Windows otomatik başlama | WiX/service iskeleti var; imzalı supervisor ve Win11 kabulü yok |
 | Print-agent pakete girsin | Durable outbox/agent çalışıyor; gerçek Windows executable/pilot kaldı |
-| Garson Wi-Fi'dan bağlansın | Same-origin gateway ve güvenli IP/QR backend tamam; mDNS/Tauri ve telefon pilotu kaldı |
+| Garson Wi-Fi'dan bağlansın | Same-origin gateway, `/garson` ve imzalı masa `/menu` QR akışı tamam; mDNS/Tauri ve telefon pilotu kaldı |
 | Superadmin lisans üretme/yönetme | CRUD/lifecycle/audit API ve profesyonel UI tamam |
 
 Bu tablo her faz sonunda güncellenecek; “bitti” yalnız temiz Windows VM ve gerçek

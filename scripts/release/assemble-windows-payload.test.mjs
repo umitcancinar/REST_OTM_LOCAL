@@ -31,6 +31,7 @@ async function createFixture() {
   const apiClosure = path.join(source, 'api-closure');
   const adminApp = path.join(source, 'admin');
   const waiterApp = path.join(source, 'waiter');
+  const menuApp = path.join(source, 'menu');
   const gatewayDist = path.join(source, 'gateway-dist');
   const printAgentDist = path.join(source, 'print-dist');
   const receiptDist = path.join(source, 'receipt-dist');
@@ -55,11 +56,12 @@ async function createFixture() {
     workspaceDependenciesPruned: true,
   }, null, 2)}\n`);
 
-  for (const [app, name] of [[adminApp, 'admin'], [waiterApp, 'waiter']]) {
+  for (const [app, name] of [[adminApp, 'admin'], [waiterApp, 'waiter'], [menuApp, 'menu']]) {
     await put(app, `.next/standalone/apps/${name}/server.js`, 'console.log("standalone");\n');
     await put(app, `.next/static/chunks/${name}.js`, 'self.webpackChunk = [];\n');
     await put(app, 'public/manifest.json', '{}\n');
   }
+  await put(menuApp, '.next/required-server-files.json', '{"config":{"basePath":"/menu"}}\n');
   await put(gatewayDist, 'app.js', 'console.log("gateway");\n');
   await put(gatewayDist, 'config.js', 'module.exports = {};\n');
   await put(printAgentDist, 'agent.js', 'require("@rest-otm/receipt-core");\n');
@@ -76,6 +78,12 @@ async function createFixture() {
     'license-public-key.pem',
     publicKey.export({ type: 'spki', format: 'pem' }),
   );
+  const { publicKey: updaterKey } = generateKeyPairSync('ed25519');
+  const updatePublicKey = await put(
+    source,
+    'update-public-key.pem',
+    updaterKey.export({ type: 'spki', format: 'pem' }),
+  );
 
   const executableSources = {};
   for (const [property, relativePath] of Object.entries({
@@ -86,6 +94,7 @@ async function createFixture() {
     apiLauncher: CANONICAL_ROLE_PATHS['local-api'],
     adminLauncher: CANONICAL_ROLE_PATHS['admin-ui'],
     waiterLauncher: CANONICAL_ROLE_PATHS['waiter-ui'],
+    menuLauncher: CANONICAL_ROLE_PATHS['menu-ui'],
     printLauncher: CANONICAL_ROLE_PATHS['print-agent'],
     gatewayLauncher: CANONICAL_ROLE_PATHS['lan-gateway'],
   })) {
@@ -101,12 +110,14 @@ async function createFixture() {
       apiClosure,
       adminApp,
       waiterApp,
+      menuApp,
       gatewayDist,
       printAgentDist,
       receiptDist,
       receiptPackage,
       installerContract,
       publicKey: licensePublicKey,
+      updatePublicKey,
       ...executableSources,
     },
   };
@@ -116,6 +127,7 @@ test('fixture stager canonical payload ve deterministic SHA-256 manifest uretir'
   const first = await createFixture();
   const second = await createFixture();
   await writeFile(second.options.publicKey, await readFile(first.options.publicKey));
+  await writeFile(second.options.updatePublicKey, await readFile(first.options.updatePublicKey));
   t.after(() => Promise.all([
     rm(first.root, { recursive: true, force: true }),
     rm(second.root, { recursive: true, force: true }),
@@ -142,7 +154,61 @@ test('fixture stager canonical payload ve deterministic SHA-256 manifest uretir'
   await access(path.join(firstResult.root, 'api/runtime/local.js'));
   await access(path.join(firstResult.root, 'admin/runtime/apps/admin/server.js'));
   await access(path.join(firstResult.root, 'waiter/runtime/apps/waiter/server.js'));
+  await access(path.join(firstResult.root, 'menu/runtime/apps/menu/server.js'));
   await access(path.join(firstResult.root, 'print-agent/node_modules/@rest-otm/receipt-core/dist/index.js'));
+});
+
+test('license ve update trust rootlari ayri Ed25519 public key olmak zorundadir', async (t) => {
+  const sameKeyFixture = await createFixture();
+  const privateKeyFixture = await createFixture();
+  const wrongCurveFixture = await createFixture();
+  t.after(() => Promise.all([
+    rm(sameKeyFixture.root, { recursive: true, force: true }),
+    rm(privateKeyFixture.root, { recursive: true, force: true }),
+    rm(wrongCurveFixture.root, { recursive: true, force: true }),
+  ]));
+
+  await writeFile(
+    sameKeyFixture.options.updatePublicKey,
+    await readFile(sameKeyFixture.options.publicKey),
+  );
+  await assert.rejects(
+    assembleWindowsPayload(sameKeyFixture.options),
+    /ayri Ed25519 public key/,
+  );
+
+  const { privateKey } = generateKeyPairSync('ed25519');
+  await writeFile(
+    privateKeyFixture.options.updatePublicKey,
+    privateKey.export({ type: 'pkcs8', format: 'pem' }),
+  );
+  await assert.rejects(
+    assembleWindowsPayload(privateKeyFixture.options),
+    /Private key/,
+  );
+
+  const { publicKey: rsaPublicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  await writeFile(
+    wrongCurveFixture.options.updatePublicKey,
+    rsaPublicKey.export({ type: 'spki', format: 'pem' }),
+  );
+  await assert.rejects(
+    assembleWindowsPayload(wrongCurveFixture.options),
+    /Ed25519/,
+  );
+});
+
+test('Windows payload cloud/legacy bos basePath menu buildini local diye paketlemez', async (t) => {
+  const fixture = await createFixture();
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  await writeFile(
+    path.join(fixture.options.menuApp, '.next/required-server-files.json'),
+    '{"config":{"basePath":""}}\n',
+  );
+  await assert.rejects(
+    assembleWindowsPayload(fixture.options),
+    /MENU_BASE_PATH=\/menu/,
+  );
 });
 
 test('production eksik veya imzasiz PE ile payload uretmez', async (t) => {
@@ -199,6 +265,13 @@ test('wrong canonical child role/path contract ve guvensiz CLI reddedilir', asyn
   assert.throws(
     () => parseWindowsPayloadArguments(['--fixture', '--fixture', '--version', '1.0.0', '--out', 'x']),
     /Duplicate/,
+  );
+  assert.throws(
+    () => parseWindowsPayloadArguments([
+      '--version', '1.0.0', '--out', 'x',
+      '--public-key', 'a.pem', '--license-public-key', 'b.pem',
+    ]),
+    /birden fazla/,
   );
   const parsed = parseWindowsPayloadArguments(['--version', '1.0.0', '--out', '/']);
   await assert.rejects(assembleWindowsPayload(parsed), /Guvenli olmayan payload hedefi/);

@@ -29,6 +29,7 @@ pub struct NetworkContract {
     pub api: Endpoint,
     pub admin: Endpoint,
     pub waiter: Endpoint,
+    pub menu: Endpoint,
     pub print_agent: Endpoint,
     pub gateway: GatewayEndpoint,
 }
@@ -236,6 +237,7 @@ impl NetworkContract {
             ("api", &self.api),
             ("admin", &self.admin),
             ("waiter", &self.waiter),
+            ("menu", &self.menu),
             ("print_agent", &self.print_agent),
         ];
         let mut ports = BTreeSet::new();
@@ -260,6 +262,7 @@ impl NetworkContract {
             || self.api.port != 4100
             || self.admin.port != 3100
             || self.waiter.port != 3200
+            || self.menu.port != 3300
             || self.print_agent.port != 4300
         {
             return Err(HostError::InvalidConfig(
@@ -285,6 +288,7 @@ impl NetworkContract {
             self.api.port,
             self.admin.port,
             self.waiter.port,
+            self.menu.port,
             self.print_agent.port,
         ]
         .into_iter()
@@ -479,6 +483,7 @@ mod tests {
                 api: Endpoint { host: "127.0.0.1".into(), port: 4100 },
                 admin: Endpoint { host: "127.0.0.1".into(), port: 3100 },
                 waiter: Endpoint { host: "127.0.0.1".into(), port: 3200 },
+                menu: Endpoint { host: "127.0.0.1".into(), port: 3300 },
                 print_agent: Endpoint { host: "127.0.0.1".into(), port: 4300 },
                 gateway: GatewayEndpoint {
                     host: "0.0.0.0".into(),

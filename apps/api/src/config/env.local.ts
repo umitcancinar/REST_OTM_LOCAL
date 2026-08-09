@@ -9,9 +9,41 @@ import {
   sharedEnv,
 } from './env.shared';
 import { validateLocalLanHostname } from '../modules/local-connectivity/local-connectivity.runtime';
+import { validateUpdateEndpoint } from '../modules/local-update/local-update.contract';
 
 const LOCAL_LICENSE_SERVER_URL = (process.env.LOCAL_LICENSE_SERVER_URL || '').replace(/\/+$/, '');
 const LOCAL_LICENSE_PUBLIC_KEY = (process.env.LOCAL_LICENSE_PUBLIC_KEY || '').replace(/\\n/g, '\n');
+const LOCAL_UPDATE_MANIFEST_URL = process.env.LOCAL_UPDATE_MANIFEST_URL
+  || (LOCAL_LICENSE_SERVER_URL
+    ? `${LOCAL_LICENSE_SERVER_URL}/api/updates/v1/manifest`
+    : 'https://updates.invalid/api/updates/v1/manifest');
+const LOCAL_UPDATE_PUBLIC_KEY = (process.env.LOCAL_UPDATE_PUBLIC_KEY || '').replace(/\\n/g, '\n');
+const LOCAL_UPDATE_ALLOWED_ORIGINS = (() => {
+  const configured = (process.env.LOCAL_UPDATE_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  let manifestOrigin = 'https://updates.invalid';
+  try {
+    manifestOrigin = validateUpdateEndpoint(LOCAL_UPDATE_MANIFEST_URL).origin;
+  } catch {
+    addStartupError(
+      'LOCAL_UPDATE_MANIFEST_URL credentials/query/hash icermeyen gecerli bir HTTPS adresi olmali.',
+    );
+  }
+  const values = configured.length > 0 ? configured : [manifestOrigin];
+  const result: string[] = [];
+  for (const value of values) {
+    try {
+      const url = new URL(value);
+      if (url.protocol !== 'https:' || url.origin !== value || url.pathname !== '/') throw new Error();
+      result.push(url.origin);
+    } catch {
+      addStartupError('LOCAL_UPDATE_ALLOWED_ORIGINS yalniz canonical HTTPS origin icermeli.');
+    }
+  }
+  return [...new Set(result)];
+})();
 const LOCAL_LAN_HOSTNAME = (() => {
   const configured = process.env.LOCAL_LAN_HOSTNAME || '';
   if (sharedEnv.isProd && sharedEnv.RUNTIME_MODE === 'local' && !configured) {
@@ -74,6 +106,19 @@ const LOCAL_BACKUP_KEY = (() => {
   return key;
 })();
 
+const TABLE_QR_SIGNING_KEY = (() => {
+  const configured = process.env.TABLE_QR_SIGNING_SECRET;
+  const value = requireSecret(
+    'TABLE_QR_SIGNING_SECRET',
+    'development-table-qr-signing-secret-CHANGE-ME',
+  );
+  if (configured) delete process.env.TABLE_QR_SIGNING_SECRET;
+  const bytes = Buffer.from(value, 'utf8');
+  const key = createSecretKey(bytes);
+  bytes.fill(0);
+  return key;
+})();
+
 if (sharedEnv.isProd && sharedEnv.RUNTIME_MODE === 'local' && !LOCAL_BACKUP_KEY_ID) {
   addStartupError('LOCAL_BACKUP_KEY_ID tanimli degil.');
 }
@@ -104,6 +149,18 @@ if (sharedEnv.isProd && sharedEnv.RUNTIME_MODE === 'local') {
       addStartupError('LOCAL_LICENSE_PUBLIC_KEY gecerli PEM biciminde degil.');
     }
   }
+
+  if (!LOCAL_UPDATE_PUBLIC_KEY) addStartupError('LOCAL_UPDATE_PUBLIC_KEY tanimli degil.');
+  else {
+    try {
+      const key = createPublicKey(LOCAL_UPDATE_PUBLIC_KEY);
+      if (key.asymmetricKeyType !== 'ed25519') {
+        addStartupError('LOCAL_UPDATE_PUBLIC_KEY Ed25519 olmali.');
+      }
+    } catch {
+      addStartupError('LOCAL_UPDATE_PUBLIC_KEY gecerli PEM biciminde degil.');
+    }
+  }
 }
 
 const LOCAL_LICENSE_DATA_DIR = (() => {
@@ -116,6 +173,11 @@ const LOCAL_LICENSE_DATA_DIR = (() => {
   }
   return value || path.resolve(process.cwd(), 'data/license');
 })();
+
+const LOCAL_UPDATE_DATA_DIR = requireAbsoluteLocalPath(
+  'LOCAL_UPDATE_DATA_DIR',
+  path.resolve(process.cwd(), 'data/update'),
+);
 
 export const localEnv = {
   ...sharedEnv,
@@ -137,6 +199,16 @@ export const localEnv = {
     5 * 60 * 1000,
     30 * 1000,
   ),
+  LOCAL_UPDATE_MANIFEST_URL,
+  LOCAL_UPDATE_PUBLIC_KEY,
+  LOCAL_UPDATE_ALLOWED_ORIGINS,
+  LOCAL_UPDATE_DATA_DIR,
+  LOCAL_UPDATE_CHANNEL: process.env.LOCAL_UPDATE_CHANNEL || 'stable',
+  LOCAL_UPDATE_DATABASE_SCHEMA_VERSION: positiveInteger(
+    'LOCAL_UPDATE_DATABASE_SCHEMA_VERSION',
+    1,
+    0,
+  ),
   LOCAL_POSTGRES_DATA_DIR: requireAbsoluteLocalPath(
     'LOCAL_POSTGRES_DATA_DIR',
     path.resolve(process.cwd(), 'data/postgres'),
@@ -151,6 +223,7 @@ export const localEnv = {
   // yerine KeyObject'te tutulur; constructor kendisine verilen kopyayi siler.
   LOCAL_BACKUP_KEY: () => Buffer.from(LOCAL_BACKUP_KEY.export()),
   LOCAL_BACKUP_KEY_ID,
+  TABLE_QR_SIGNING_KEY: () => Buffer.from(TABLE_QR_SIGNING_KEY.export()),
   PG_DUMP_PATH: requireAbsoluteLocalPath('PG_DUMP_PATH', sharedEnv.isProd ? '' : 'pg_dump'),
   PG_RESTORE_PATH: requireAbsoluteLocalPath('PG_RESTORE_PATH', sharedEnv.isProd ? '' : 'pg_restore'),
   BACKUP_RETENTION_DAILY: positiveInteger('BACKUP_RETENTION_DAILY', 7, 0),

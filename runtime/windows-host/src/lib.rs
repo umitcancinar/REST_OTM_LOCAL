@@ -4,10 +4,13 @@ pub mod config;
 pub mod error;
 pub mod health;
 pub mod logging;
+#[cfg(windows)]
+pub mod native_provisioning;
 pub mod platform;
 pub mod runtime;
 pub mod secrets;
 pub mod supervisor;
+pub mod update;
 
 #[cfg(windows)]
 pub mod windows_service;

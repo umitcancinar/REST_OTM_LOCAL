@@ -1,5 +1,11 @@
 import { Router, type NextFunction, type RequestHandler, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
+import { prisma } from '../../config/database';
+import {
+  normalizeTableQrIdentity,
+  TableQrTokenError,
+  TableQrTokenService,
+} from '../public/table-qr-token.service';
 import {
   LocalConnectivityError,
   LocalConnectivityRuntime,
@@ -24,6 +30,7 @@ function sendError(error: LocalConnectivityError, res: Response): void {
 export function createLocalConnectivityRouter(
   runtime: LocalConnectivityRuntime,
   authorizationGuards: readonly RequestHandler[],
+  tableQrTokenService?: TableQrTokenService,
 ): Router {
   if (authorizationGuards.length === 0) {
     throw new LocalConnectivityError(
@@ -41,9 +48,13 @@ export function createLocalConnectivityRouter(
     legacyHeaders: false,
   });
 
-  router.get('/status', limiter, (_req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
-    res.json({ success: true, data: runtime.getStatus(), timestamp: new Date().toISOString() });
+  router.get('/status', limiter, async (_req, res, next: NextFunction) => {
+    try {
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ success: true, data: await runtime.getStatus(), timestamp: new Date().toISOString() });
+    } catch (error) {
+      next(error);
+    }
   });
 
   router.get('/qr.svg', limiter, async (req, res, next: NextFunction) => {
@@ -52,7 +63,41 @@ export function createLocalConnectivityRouter(
       const rawHost = Array.isArray(req.query.host) ? req.query.host[0] : req.query.host;
       const target = (typeof rawTarget === 'string' && rawTarget ? rawTarget : 'waiter') as LocalConnectivityTarget;
       const host = typeof rawHost === 'string' ? rawHost : undefined;
-      const qr = await runtime.createQrSvg(target, host);
+      let tableMenu;
+      if (target === 'table-menu') {
+        if (!tableQrTokenService) {
+          throw new LocalConnectivityError('TABLE_MENU_QR_UNAVAILABLE', 'Masa menusu QR servisi hazir degil.', 503);
+        }
+        const rawSlug = Array.isArray(req.query.slug) ? req.query.slug[0] : req.query.slug;
+        const rawTableId = Array.isArray(req.query.tableId) ? req.query.tableId[0] : req.query.tableId;
+        try {
+          const identity = normalizeTableQrIdentity(
+            typeof rawSlug === 'string' ? rawSlug : '',
+            typeof rawTableId === 'string' ? rawTableId : '',
+          );
+          const table = await prisma.restaurantTable.findFirst({
+            where: {
+              id: identity.tableId,
+              tenant: { slug: identity.slug, isActive: true },
+            },
+            select: { id: true },
+          });
+          if (!table) {
+            throw new LocalConnectivityError('TABLE_MENU_QR_NOT_FOUND', 'Masa bulunamadi.', 404);
+          }
+          tableMenu = {
+            ...identity,
+            tableToken: tableQrTokenService.sign(identity.slug, identity.tableId),
+          };
+        } catch (error) {
+          if (error instanceof LocalConnectivityError) throw error;
+          if (error instanceof TableQrTokenError) {
+            throw new LocalConnectivityError('INVALID_TABLE_MENU_QR_IDENTITY', error.message);
+          }
+          throw error;
+        }
+      }
+      const qr = await runtime.createQrSvg(target, host, tableMenu);
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
       res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
