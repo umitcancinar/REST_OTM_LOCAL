@@ -6,6 +6,9 @@
 node_modules/
 .pnpm-store/
 
+# Kisisel Claude Code arac izinleri — makineye ozel, paylasilmaz.
+.claude/settings.local.json
+
 # Environment variables (NEVER commit)
 .env
 .env.local

@@ -46,3 +46,20 @@ services:
         sync: false
       - key: SUPER_ADMIN_PASSWORD
         sync: false
+
+  - type: web
+    name: rest-otm-marketing
+    plan: free
+    env: node
+    buildCommand: npm install -g pnpm && pnpm install --prod=false --no-frozen-lockfile && pnpm --filter @rest-otm/marketing build
+    startCommand: cd apps/marketing && pnpm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      # Demo talep formunun teslim ucu. Tanimlanmazsa basvurular yalnizca
+      # sunucu logunda gorunur (bkz. src/app/api/demo-request/route.ts).
+      # Slack "Incoming Webhook" veya Make/n8n/Zapier ucu buraya yazilabilir.
+      - key: DEMO_REQUEST_WEBHOOK_URL
+        sync: false

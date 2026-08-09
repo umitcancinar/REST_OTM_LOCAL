@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================
+   REST_OTM Marketing — "Operational Atelier" design tokens
+   ==========================================================
+   Tek bir sabit yön: sıcak kağıt (gündüz içerik) + neredeyse
+   siyah "night" (hero / kapanış) bantları. Kullanıcı temasına
+   göre değişen bir karanlık mod anahtarı YOK — bilinçli olarak.
+   Bu, qrmenulerim ve REST_OTM panellerinde zaten kurulu olan
+   "Operational Atelier" kimliğinin devamıdır. */
+
+@layer base {
+  :root {
+    --bg: 45 28% 95%;
+    --surface: 40 33% 98%;
+    --surface-2: 40 24% 92%;
+    --ink: 20 12% 10%;
+    --muted: 24 8% 42%;
+    --line: 30 14% 86%;
+    --accent: 14 72% 56%;
+    --accent-soft: 14 60% 93%;
+    --night: 24 10% 7%;
+    --night-2: 21 9% 11%;
+    --radius: 0.9rem;
+  }
+
+  * {
+    @apply border-line;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  html.no-smooth {
+    scroll-behavior: auto;
+  }
+
+  body {
+    @apply bg-bg text-ink antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  ::selection {
+    background: hsl(var(--accent) / 0.85);
+    color: hsl(var(--night));
+  }
+
+  /* Klavye kullanıcıları için odak halkası hiçbir yerde kaldırılmaz. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--accent));
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-display;
+    letter-spacing: -0.01em;
+  }
+}
+
+@layer utilities {
+  .container-shell {
+    @apply mx-auto w-full max-w-[1180px] px-6 sm:px-8 lg:px-10;
+  }
+
+  .text-balance-pretty {
+    text-wrap: balance;
+  }
+
+  /* Genişliği içinden taşan içerik (kod, tablo, diyagram) yalnız
+     kendi kapsayıcısı içinde kaysın — sayfa gövdesi asla yatay
+     kaymasın. */
+  .scroll-x-contain {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
