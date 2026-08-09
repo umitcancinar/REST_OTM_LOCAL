@@ -51,8 +51,11 @@ services:
     name: rest-otm-marketing
     plan: free
     env: node
-    buildCommand: npm install -g pnpm && pnpm install --prod=false --no-frozen-lockfile && pnpm --filter @rest-otm/marketing build
-    startCommand: cd apps/marketing && pnpm run start
+    # Marketing cloud-only bir Next.js uygulamasidir. Standalone artefact
+    # tasimak yerine Render'in normal Next sunucusunu kullan; bu sayede
+    # _next/static dosyalari ve PORT/host ayari tek yerde dogru kalir.
+    buildCommand: npm install -g pnpm@9.15.0 && pnpm install --prod=false --frozen-lockfile && pnpm --filter @rest-otm/marketing build
+    startCommand: pnpm --filter @rest-otm/marketing exec next start --port $PORT
     envVars:
       - key: NODE_ENV
         value: production

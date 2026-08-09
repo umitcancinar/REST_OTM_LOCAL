@@ -29,7 +29,7 @@ export function TrustSection() {
     <section id="referanslar" className="border-y border-line bg-bg py-20 sm:py-24">
       <div className="container-shell">
         <motion.div
-          initial={reduced ? undefined : { opacity: 0, y: 16 }}
+          initial={false}
           whileInView={reduced ? undefined : { opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.5, ease: EASE_OUT }}
@@ -52,7 +52,7 @@ export function TrustSection() {
           {POINTS.map((p, i) => (
             <motion.div
               key={p.title}
-              initial={reduced ? undefined : { opacity: 0, y: 16 }}
+              initial={false}
               whileInView={reduced ? undefined : { opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-30px" }}
               transition={{ duration: 0.4, ease: EASE_OUT, delay: i * 0.07 }}

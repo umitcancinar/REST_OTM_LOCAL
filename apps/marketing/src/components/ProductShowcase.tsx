@@ -203,7 +203,7 @@ export function ProductShowcase() {
             <AnimatePresence mode="wait">
               <motion.div
                 key={active}
-                initial={reduced ? undefined : { opacity: 0, y: 8 }}
+                initial={false}
                 animate={reduced ? undefined : { opacity: 1, y: 0 }}
                 exit={reduced ? undefined : { opacity: 0, y: -8 }}
                 transition={{ duration: 0.25, ease: EASE_OUT }}

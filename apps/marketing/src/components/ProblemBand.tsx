@@ -10,7 +10,7 @@ export function ProblemBand() {
     <section className="border-b border-line bg-surface py-20 sm:py-28">
       <div className="container-shell">
         <motion.p
-          initial={reduced ? undefined : { opacity: 0, y: 16 }}
+          initial={false}
           whileInView={reduced ? undefined : { opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.55, ease: EASE_OUT }}
@@ -20,7 +20,7 @@ export function ProblemBand() {
           <span className="text-accent">kasanız da durur.</span>
         </motion.p>
         <motion.p
-          initial={reduced ? undefined : { opacity: 0, y: 16 }}
+          initial={false}
           whileInView={reduced ? undefined : { opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.55, ease: EASE_OUT, delay: 0.1 }}

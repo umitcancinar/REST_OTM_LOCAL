@@ -48,7 +48,7 @@ export function HowItWorks() {
           {STEPS.map((s, i) => (
             <motion.div
               key={s.title}
-              initial={reduced ? undefined : { opacity: 0, y: 20 }}
+              initial={false}
               whileInView={reduced ? undefined : { opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-40px" }}
               transition={{ duration: 0.45, ease: EASE_OUT, delay: i * 0.08 }}

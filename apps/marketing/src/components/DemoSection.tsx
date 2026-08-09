@@ -42,7 +42,7 @@ export function DemoSection() {
     <section id="demo" className="border-t border-line bg-bg py-24 sm:py-32">
       <div className="container-shell grid gap-14 lg:grid-cols-[1fr_1.1fr] lg:gap-10">
         <motion.div
-          initial={reduced ? undefined : { opacity: 0, y: 18 }}
+          initial={false}
           whileInView={reduced ? undefined : { opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.5, ease: EASE_OUT }}
@@ -74,7 +74,7 @@ export function DemoSection() {
         </motion.div>
 
         <motion.div
-          initial={reduced ? undefined : { opacity: 0, y: 18 }}
+          initial={false}
           whileInView={reduced ? undefined : { opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.5, ease: EASE_OUT, delay: 0.1 }}
