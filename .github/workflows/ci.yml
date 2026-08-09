@@ -25,6 +25,10 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+      # Prisma Client postinstall'e güvenilmez: CI'nin temiz checkout'unda
+      # generated model/type'lar yoktur. Typecheck ve API build'den önce
+      # şemadaki client'ı deterministik olarak üret.
+      - run: DATABASE_URL=postgresql://rest_otm:rest_otm@127.0.0.1:5432/rest_otm pnpm --filter @rest-otm/api exec prisma generate
       - run: pnpm --filter @rest-otm/receipt-core build
       - run: pnpm --filter @rest-otm/license build
       - run: pnpm -r run typecheck
