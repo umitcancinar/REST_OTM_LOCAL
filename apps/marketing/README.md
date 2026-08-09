@@ -15,8 +15,16 @@ http://localhost:3004 adresinde açılır.
 
 - `src/app/page.tsx` — tüm bölümlerin birleştirildiği ana sayfa
 - `src/components/` — her bölüm ayrı bileşen (Hero, FeatureGrid, PackagesSection...)
-- `src/app/api/demo-request/route.ts` — demo formu; `DEMO_REQUEST_WEBHOOK_URL`
-  tanımlanmadan basvurular yalnızca sunucu logunda görünür (bkz. dosya içi not)
+- `src/app/api/demo-request/route.ts` — formu alır, 6 haneli doğrulama kodu gönderir
+- `src/app/api/demo-request/verify/route.ts` — kodu doğrular, talebi ve iki e-posta bildirimini açar
+
+## Demo e-posta doğrulaması
+
+Akış kalıcı müşteri verisini marketing sunucusuna yazmaz: 10 dakika geçerli,
+şifrelenmiş ve HttpOnly bir doğrulama oturumu kullanır. Kod doğru olduğunda
+başvuru sahibine onay; `DEMO_NOTIFICATION_EMAIL` adresine de tam talep özeti
+gönderilir. Render ortamına şu secret'ları ekleyin: `RESEND_API_KEY`,
+`DEMO_EMAIL_FROM`, `DEMO_NOTIFICATION_EMAIL`, `DEMO_VERIFICATION_SECRET`.
 
 ## Tasarım yönü
 

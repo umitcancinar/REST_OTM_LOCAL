@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Mail, Lock, LogIn, Loader2, AlertCircle, Sparkles, User, Wallet } from 'lucide-react';
+import { useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { Mail, Lock, LogIn, Loader2, AlertCircle, Sparkles, MailCheck, ShieldCheck } from 'lucide-react';
 import styles from './page.module.css';
 
 export default function LoginPage() {
@@ -9,6 +9,10 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [emailHint, setEmailHint] = useState('');
+  const [stage, setStage] = useState<'credentials' | 'verification'>('credentials');
+  const [verificationPhase, setVerificationPhase] = useState<'idle' | 'orbiting' | 'verified'>('idle');
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -16,7 +20,7 @@ export default function LoginPage() {
     setError('');
 
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api'}/auth/login`, {
+      const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -29,25 +33,38 @@ export default function LoginPage() {
         return;
       }
 
-      // Store tokens
-      localStorage.setItem('accessToken', data.data.tokens.accessToken);
-      localStorage.setItem('refreshToken', data.data.tokens.refreshToken);
-      localStorage.setItem('user', JSON.stringify(data.data.user));
-
-      // Role-based redirect
-      const user = data.data.user;
-      
-      if (user.role !== 'SUPER_ADMIN') {
-        setError('Bu panele sadece Super Admin yetkisi ile girilebilir.');
-        setIsLoading(false);
-        return;
-      }
-
-      window.location.href = '/dashboard';
+      if (!data.requiresVerification) throw new Error('E-posta doğrulaması başlatılamadı.');
+      setEmailHint(data.emailHint || email);
+      setStage('verification');
 
 
     } catch {
       setError('Sunucuya bağlanılamadı');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleVerification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError('');
+    setVerificationPhase('orbiting');
+    try {
+      const [res] = await Promise.all([
+        fetch('/api/auth/verify-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: verificationCode }) }),
+        new Promise((resolve) => window.setTimeout(resolve, 1250)),
+      ]);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Kod doğrulanamadı.');
+      setVerificationPhase('verified');
+      // Sadece görüntüleme için zararsız profil bilgisi tutulur; tokenlar HttpOnly cookie'dedir.
+      localStorage.setItem('user', JSON.stringify(data.data.user));
+      await new Promise((resolve) => window.setTimeout(resolve, 850));
+      window.location.href = '/dashboard';
+    } catch (err) {
+      setVerificationPhase('idle');
+      setError(err instanceof Error ? err.message : 'Doğrulama yapılamadı.');
     } finally {
       setIsLoading(false);
     }
@@ -73,8 +90,7 @@ export default function LoginPage() {
           <p className={styles.logoSubtitle}>SuperAdmin Paneli</p>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleLogin} className={styles.form}>
+        {stage === 'credentials' ? <form onSubmit={handleLogin} className={styles.form}>
           <div className={styles.inputGroup}>
             <label htmlFor="email">E-posta Adresi</label>
             <div className={styles.inputWrapper}>
@@ -131,10 +147,46 @@ export default function LoginPage() {
               </>
             )}
           </button>
-        </form>
+        </form> : <form onSubmit={handleVerification} className={styles.form}>
+          <div className={styles.verificationIcon}><MailCheck size={26} strokeWidth={2} /></div>
+          <div className={styles.verificationCopy}><h2>E-postanı doğrula</h2><p><strong>{emailHint}</strong> adresine 6 haneli, tek kullanımlık bir erişim kodu gönderdik.</p></div>
+          <div className={styles.inputGroup}>
+            <label htmlFor="verification-code">Doğrulama kodu</label>
+            <OtpOrbitInput value={verificationCode} onChange={setVerificationCode} phase={verificationPhase} />
+          </div>
+          {error && <div className={styles.errorMessage}><AlertCircle size={15} strokeWidth={2} /><span>{error}</span></div>}
+          <button type="submit" className={styles.loginBtn} disabled={isLoading || verificationCode.length !== 6}>{verificationPhase === 'verified' ? <><ShieldCheck size={16} /><span>Doğrulandı</span></> : isLoading ? <Loader2 size={18} strokeWidth={2} className={styles.spinner} /> : <><ShieldCheck size={16} /><span>Doğrula ve giriş yap</span></>}</button>
+          <button type="button" className={styles.backButton} onClick={() => { setStage('credentials'); setVerificationCode(''); setError(''); }}>Farklı hesapla giriş yap</button>
+        </form>}
 
         <p className={styles.version}>v 1.0.1 - Kolay ve Güvenli Yönetim</p>
       </div>
     </div>
   );
+}
+
+function OtpOrbitInput({ value, onChange, phase }: { value: string; onChange: (value: string) => void; phase: 'idle' | 'orbiting' | 'verified' }) {
+  const refs = useRef<Array<HTMLInputElement | null>>([]);
+  const digits = Array.from({ length: 6 }, (_, index) => value[index] ?? '');
+
+  function update(index: number, raw: string) {
+    const next = [...digits];
+    next[index] = raw.replace(/\D/g, '').slice(-1);
+    onChange(next.join(''));
+    if (next[index] && index < 5) refs.current[index + 1]?.focus();
+  }
+
+  function onKeyDown(index: number, event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'Backspace' && !digits[index] && index > 0) refs.current[index - 1]?.focus();
+    if (event.key === 'ArrowLeft' && index > 0) refs.current[index - 1]?.focus();
+    if (event.key === 'ArrowRight' && index < 5) refs.current[index + 1]?.focus();
+  }
+
+  return <div className={`${styles.otpOrbitStage} ${phase === 'orbiting' ? styles.otpOrbiting : ''} ${phase === 'verified' ? styles.otpVerified : ''}`} onPaste={(event) => { const pasted = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6); if (!pasted) return; event.preventDefault(); onChange(pasted); refs.current[Math.min(pasted.length, 6) - 1]?.focus(); }}>
+    <div className={styles.otpRing} aria-hidden />
+    <div className={styles.otpRow} role="group" aria-label="6 haneli doğrulama kodu">
+      {digits.map((digit, index) => <input key={index} ref={(node) => { refs.current[index] = node; }} aria-label={`${index + 1}. hane`} autoComplete={index === 0 ? 'one-time-code' : 'off'} className={styles.otpSlot} disabled={phase !== 'idle'} inputMode="numeric" maxLength={1} onChange={(event) => update(index, event.target.value)} onKeyDown={(event) => onKeyDown(index, event)} pattern="[0-9]" required style={{ '--otp-x': `${(index - 2.5) * 52}px`, '--otp-delay': `${index * 35}ms` } as CSSProperties} value={digit} />)}
+    </div>
+    <div className={styles.otpVerifiedTile} aria-hidden><ShieldCheck size={24} strokeWidth={2.8} /></div>
+  </div>;
 }

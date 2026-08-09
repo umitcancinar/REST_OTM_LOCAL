@@ -14,9 +14,18 @@ services:
         value: cloud
       - key: PORT
         value: 10000
+      # Render reverse proxy'sinin API'ye ulaşabilmesi için cloud dinlemesi.
+      - key: BIND_HOST
+        value: 0.0.0.0
       - key: DATABASE_URL
         sync: false
       - key: LICENSE_PRIVATE_KEY
+        sync: false
+      - key: LICENSE_KEY_ACTIVE_PEPPER_VERSION
+        sync: false
+      - key: LICENSE_KEY_PEPPERS
+        sync: false
+      - key: MENU_PUBLIC_ID_SECRET
         sync: false
       - key: UPDATE_SIGNING_PRIVATE_KEY
         sync: false
@@ -46,7 +55,6 @@ services:
         sync: false
       - key: SUPER_ADMIN_PASSWORD
         sync: false
-
   - type: web
     name: rest-otm-marketing
     plan: free
@@ -61,8 +69,40 @@ services:
         value: production
       - key: PORT
         value: 10000
-      # Demo talep formunun teslim ucu. Tanimlanmazsa basvurular yalnizca
-      # sunucu logunda gorunur (bkz. src/app/api/demo-request/route.ts).
-      # Slack "Incoming Webhook" veya Make/n8n/Zapier ucu buraya yazilabilir.
-      - key: DEMO_REQUEST_WEBHOOK_URL
+      # Demo talebi e-posta doğrulaması: Resend API anahtarı ve doğrulanmış
+      # sender adresi Render Secret olarak girilir; kaynak koda yazılmaz.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: DEMO_EMAIL_FROM
+        sync: false
+      - key: DEMO_NOTIFICATION_EMAIL
+        sync: false
+      - key: DEMO_VERIFICATION_SECRET
+        sync: false
+
+  # Sadece lisans ve işletme yönetimi için bulut super-admin paneli.
+  # Müşteri operasyonu/garson/kasa ekranı burada değil, kendi yerel ağında çalışır.
+  - type: web
+    name: rest-otm-superadmin
+    plan: free
+    env: node
+    buildCommand: npm install -g pnpm@9.15.0 && pnpm install --prod=false --frozen-lockfile && pnpm --filter @rest-otm/superadmin build
+    startCommand: pnpm --filter @rest-otm/superadmin exec next start --port $PORT
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      # https://rest-otm-api.onrender.com/api örneği; Render dashboard'daki
+      # API ana URL'si ile kesin değer girilir.
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
+      # Sunucu tarafı BFF'in API origin'i; asla NEXT_PUBLIC_ olarak açılmaz.
+      - key: REST_OTM_API_URL
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: SUPERADMIN_EMAIL_FROM
+        sync: false
+      - key: SUPERADMIN_SESSION_SECRET
         sync: false

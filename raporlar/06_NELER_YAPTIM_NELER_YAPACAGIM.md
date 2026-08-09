@@ -3,7 +3,7 @@
 Bu dosya aktif devir günlüğüdür. Her çalışma turunda güncellenir. Bir madde
 yalnız kodu, testi ve gerekli kabul kontrolü tamamlandığında `BİTTİ` olur.
 
-Son güncelleme: 09.08.2026
+Son güncelleme: 10.08.2026
 
 ## Nihai hedef
 
@@ -13,6 +13,36 @@ uygulama penceresi kapansa bile Windows service olarak çalışan; aynı yerel
 ağdaki garson telefonlarına ve yazıcılara hizmet veren profesyonel REST_OTM.
 
 ## Bu turda yaptım
+
+### 10.08.2026 — yayın ve yönetici erişimi sertleştirmesi
+
+- `BİTTİ (KOD + TEST)` Marketing ürün sekmeleri ve SSS artık React/Motion
+  hydration'ına bağlı değil: native radio/details kontrolleri Safari'de veya
+  istemci JavaScript'i gecikse bile çalışır. Favicon REST_OTM işaretine
+  güncellendi; hero'daki operasyon paneli gerçekçi masa, sipariş ve durum
+  bilgileriyle dolduruldu.
+- `BİTTİ (KOD + TEST)` Demo talebi: form → tek kullanımlık 6 haneli e-posta
+  kodu → doğrulama → başvuru sahibine onay + operatöre tam talep özeti
+  akışı eklendi. Bekleyen talep bilgisi veritabanına yazılmadan AES-256-GCM
+  şifreli, HttpOnly, SameSite cookie'de 10 dakika tutulur; kod CSPRNG ile
+  üretilir ve 5 başarısız denemede kapanır.
+- `BİTTİ (KOD + TEST)` Superadmin girişi iki aşamalı e-posta doğrulamasına
+  geçirildi. Access/refresh token'ları artık browser `localStorage`'ında
+  bulunmaz; sunucu BFF tarafından HttpOnly + Secure + SameSite=Strict
+  cookie'lerle saklanır, refresh token rotation BFF içinde yürür. API login
+  yüzeyinin sınırı 15 dakikada IP başına 5 denemeye indirildi.
+- `BİTTİ (KONFİGÜRASYON)` `render.yaml` cloud API için eksik fail-fast
+  secret'ları ve Render dış erişim bind ayarını; marketing için e-posta
+  değişkenlerini; superadmin için ayrı web servisini tanımlar.
+- `GEÇTİ` Marketing production build + typecheck, superadmin production build
+  + typecheck, API strict typecheck ve API 118/118 test geçti.
+- `AÇIK ÜRETİM KAPISI` `panel.restoranyonetim.com` şu anda superadmin
+  servisine değil marketing içeriğine dönüyor. `rest-otm-superadmin` Render
+  servisi oluşturulup başarılı deploy olduktan sonra custom domain bu servise
+  taşınmalı; `REST_OTM_API_URL` gerçek API `/api` origin'i olmalı.
+- `AÇIK ÜRETİM KAPISI` Resend anahtarı/gönderen domain DNS doğrulaması olmadan
+  gerçek e-posta gönderimi kasıtlı olarak çalışmaz. Secret'lar Render'a
+  girilmeden demo veya superadmin e-posta kodu "başarılı" taklidi yapmaz.
 
 ### 09.08.2026 bağımsız kod denetimi
 
