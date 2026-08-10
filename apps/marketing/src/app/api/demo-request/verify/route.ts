@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { clearPendingDemoCookie, getPendingDemo, setPendingDemoCookie, verifyPendingCode } from "@/lib/demo-verification";
 import { sendDemoNotifications } from "@/lib/demo-mail";
 import { finishDemoChallenge } from "@/lib/demo-security";
+import { marketingRedirectUrl } from "@/lib/public-origin";
 
 export const runtime = "nodejs";
 
-function redirect(req: NextRequest, stage: "verify" | "success" | "error", message?: string) { const url = new URL("/", req.url); url.hash = "demo"; url.searchParams.set("demo", stage); if (message) url.searchParams.set("message", message); return NextResponse.redirect(url, 303); }
+function redirect(req: NextRequest, stage: "verify" | "success" | "error", message?: string) { const url = marketingRedirectUrl(req.url); url.hash = "demo"; url.searchParams.set("demo", stage); if (message) url.searchParams.set("message", message); return NextResponse.redirect(url, 303); }
 
 export async function POST(req: NextRequest) {
   const pending = getPendingDemo(req);

@@ -5,12 +5,13 @@ import { sendVerificationEmail } from "@/lib/demo-mail";
 import { parseDemoInput } from "@/lib/demo-input";
 import { cancelDemoChallenge, clientIp, registerDemoChallenge, takeDemoEmailSend, takeDemoFormAttempt } from "@/lib/demo-security";
 import { verifyTurnstile } from "@/lib/turnstile";
+import { marketingRedirectUrl } from "@/lib/public-origin";
 
 export const runtime = "nodejs";
 const MAX_FORM_BYTES = 16_384;
 
 function redirect(req: NextRequest, stage: "form" | "verify" | "error", message?: string, retryAfter?: number) {
-  const url = new URL("/", req.url);
+  const url = marketingRedirectUrl(req.url);
   url.hash = "demo";
   if (stage !== "form") url.searchParams.set("demo", stage);
   if (message) url.searchParams.set("message", message);
