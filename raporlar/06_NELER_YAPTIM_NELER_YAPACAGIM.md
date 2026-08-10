@@ -5,6 +5,22 @@ yalnız kodu, testi ve gerekli kabul kontrolü tamamlandığında `BİTTİ` olur
 
 Son güncelleme: 10.08.2026
 
+### 10.08.2026 — izole control-plane dağıtım hazırlığı
+
+- `BİTTİ (KOD + TEST)` Mevcut müşteri API'sini ve marketing servisini
+  sahiplenmeyen ayrı `render.control.yaml` Blueprint'i eklendi. Yeni lisans API
+  ve superadmin benzersiz servis adlarıyla aynı Render projesinde ama ayrı
+  process/arıza alanlarında çalışır.
+- `BİTTİ (KOD + TEST)` Lisans ve güncelleme için birbirinden farklı Ed25519
+  trust root üreten, private/public materyali açık biçimde ayıran tek kullanımlık
+  deploy secret üreticisi ve regresyon testleri eklendi.
+- `BİTTİ (DOKÜMANTASYON)` Neon'un tek birincil veritabanı olacağı; ek DB
+  URL'lerinin otomatik yedek sayılamayacağı; dump/PITR + bağımsız hedef + gerçek
+  restore testinin üretim kapısı olduğu kaydedildi. Ayrıntılı kabul listesi
+  `08_CONTROL_PLANE_RENDER_NEON_KURULUMU.md` içindedir.
+- `AÇIK DIŞ İŞ` Blueprint main dalına alındıktan sonra Render kaynakları ve Neon
+  projesi oluşturulacak; secret'lar yalnız sağlayıcı kasalarına girilecek.
+
 ## Nihai hedef
 
 Temiz Windows 11 bilgisayarda Node, Git, pnpm veya Docker kurulu olmadan tek

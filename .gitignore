@@ -78,3 +78,7 @@ _to_delete/
 # Sizarsa herkes kendine sinirsiz lisans uretebilir.
 *.license-key.pem
 license-private.pem
+
+# Control-plane bootstrap çıktısı özel imza anahtarları içerir.
+control-plane-secrets*.env
+control-plane-secrets*.txt
