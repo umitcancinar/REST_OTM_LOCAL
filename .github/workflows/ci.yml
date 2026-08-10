@@ -33,6 +33,7 @@ jobs:
       - run: pnpm --filter @rest-otm/license build
       - run: pnpm -r run typecheck
       - run: pnpm --filter @rest-otm/license test
+      - run: pnpm run test:control-deploy
       - run: pnpm --filter @rest-otm/api test
       - run: pnpm --filter @rest-otm/marketing test
       - run: pnpm --filter @rest-otm/superadmin test

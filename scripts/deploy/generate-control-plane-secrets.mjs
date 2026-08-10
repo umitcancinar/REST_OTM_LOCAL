@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import { generateKeyPairSync, randomBytes, createPublicKey } from 'node:crypto';
+import { open } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 function ed25519Pair() {
@@ -62,10 +64,31 @@ export function renderEnvBundle(bundle) {
   ].join('\n');
 }
 
+export async function writeSecretBundle(filePath, bundle = generateControlPlaneSecrets()) {
+  if (!filePath || typeof filePath !== 'string') {
+    throw new Error('secret bundle output path is required');
+  }
+
+  const absolutePath = resolve(filePath);
+  const handle = await open(absolutePath, 'wx', 0o600);
+  try {
+    await handle.writeFile(renderEnvBundle(bundle), { encoding: 'utf8' });
+  } finally {
+    await handle.close();
+  }
+  return absolutePath;
+}
+
 const invokedDirectly = process.argv[1]
   && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (invokedDirectly) {
-  process.stdout.write(renderEnvBundle(generateControlPlaneSecrets()));
+  const outIndex = process.argv.indexOf('--out');
+  if (outIndex >= 0) {
+    const outPath = process.argv[outIndex + 1];
+    const writtenPath = await writeSecretBundle(outPath);
+    process.stdout.write(`Secret bundle written with mode 0600: ${writtenPath}\n`);
+  } else {
+    process.stdout.write(renderEnvBundle(generateControlPlaneSecrets()));
+  }
 }
-

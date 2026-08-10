@@ -18,8 +18,15 @@ Son güncelleme: 10.08.2026
   URL'lerinin otomatik yedek sayılamayacağı; dump/PITR + bağımsız hedef + gerçek
   restore testinin üretim kapısı olduğu kaydedildi. Ayrıntılı kabul listesi
   `08_CONTROL_PLANE_RENDER_NEON_KURULUMU.md` içindedir.
-- `AÇIK DIŞ İŞ` Blueprint main dalına alındıktan sonra Render kaynakları ve Neon
-  projesi oluşturulacak; secret'lar yalnız sağlayıcı kasalarına girilecek.
+- `BİTTİ (VERİTABANI)` Yeni Neon control-plane veritabanına 11 Prisma migration
+  sıralı ve hatasız uygulandı. Veritabanı mevcut müşteri API'sinden tamamen
+  ayrıdır.
+- `BİTTİ (GÜVENLİ TESLİM)` Secret paketi owner-only `0600` izinle, üzerine
+  yazmayı reddeden tek kullanımlık akışla üretildi. Render'da hangi alana hangi
+  değerin girileceği `09_RENDER_KOPYALA_YAPISTIR.md` içinde sabitlendi.
+- `AÇIK DIŞ İŞ` Sohbette görünen Neon parolası döndürülecek; yeni URL ve Render
+  secret'ları yalnız sağlayıcı kasalarına girilecek. Sonra iki yeni servisin
+  canlı MFA/lisans kabulü yapılacak.
 
 ## Nihai hedef
 
