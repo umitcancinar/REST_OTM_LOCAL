@@ -26,6 +26,40 @@ başvuru sahibine onay; `DEMO_NOTIFICATION_EMAIL` adresine de tam talep özeti
 gönderilir. Render ortamına şu secret'ları ekleyin: `RESEND_API_KEY`,
 `DEMO_EMAIL_FROM`, `DEMO_NOTIFICATION_EMAIL`, `DEMO_VERIFICATION_SECRET`.
 
+### Bot ve abuso koruması
+
+Demo formu Cloudflare Turnstile ile tarayıcıda challenge üretir ve bu tokenı
+sunucuda Siteverify uç noktasına doğrulatır. Production'da anahtar veya izinli
+hostname listesi eksikse istek **fail-closed** reddedilir. Render'a ayrıca:
+
+- `NEXT_PUBLIC_TURNSTILE_SITE_KEY` — Turnstile widget site key
+- `TURNSTILE_SECRET_KEY` — yalnızca sunucuda kalan secret key
+- `TURNSTILE_ALLOWED_HOSTNAMES` — virgülle ayrılmış
+  `restoranyonetim.com,www.restoranyonetim.com,rest-otm-marketing.onrender.com`
+
+değerlerini girin. Yerel geliştirmede değişkenler boş bırakılırsa Cloudflare'ın
+resmi always-pass test anahtarları kullanılır; bu anahtarlar production'da asla
+kabul edilmez.
+
+Turnstile öncesi IP limiti, doğrulamadan sonra IP/e-posta gönderim limiti ve
+60 saniyelik e-posta cooldown uygulanır. Kod deneme sayısı artık yalnızca geri
+oynatılabilen tarayıcı çerezinden değil, sunucudaki yetkili kayıttan takip edilir;
+doğru kod işlenirken ikinci paralel istek kilitlenir ve tamamlanan istek yeniden
+kullanılamaz. Render free servisi tek instance olduğu sürece bu kayıt süreç
+belleğinde güvenlidir. İleride birden fazla marketing instance açılırsa aynı
+arayüz Redis/KV gibi paylaşımlı ve TTL destekli bir store'a taşınmalıdır.
+
+Doğrulama e-postası saatte IP başına en fazla 5, e-posta başına en fazla 3 kez
+gönderilir. Form alanları hem HTML hem sunucuda uzunluk ve kontrol karakteri
+sınırından geçirilir. İşletme sahibine gelen bildirimde `Reply-To` doğrulanmış
+müşteri adresidir; doğrudan Yanıtla ile müşteriye dönülür.
+
+Güvenlik testleri:
+
+```bash
+pnpm --filter @rest-otm/marketing test
+```
+
 ## Tasarım yönü
 
 "Operational Atelier": sıcak kağıt renkli içerik bantları + neredeyse siyah

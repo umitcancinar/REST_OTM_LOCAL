@@ -88,6 +88,21 @@ export const authController = {
     }
   },
 
+  async superAdminRefreshToken(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { refreshToken } = refreshTokenSchema.parse(req.body);
+      const tokens = await authService.refreshToken(refreshToken, sessionContext(req), true);
+      apiResponse({ res, data: tokens, message: 'Token refreshed successfully' });
+    } catch (error: unknown) {
+      const err = error as Error & { statusCode?: number };
+      if (err.statusCode) {
+        apiError(res, err.statusCode, err.message);
+        return;
+      }
+      next(error);
+    }
+  },
+
   /**
    * Cikis — refresh token'i sunucu tarafinda iptal eder.
    * Kimlik dogrulamasi ISTEMEZ: suresi dolmus bir access token'la da

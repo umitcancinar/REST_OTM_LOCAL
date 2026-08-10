@@ -34,6 +34,8 @@ jobs:
       - run: pnpm -r run typecheck
       - run: pnpm --filter @rest-otm/license test
       - run: pnpm --filter @rest-otm/api test
+      - run: pnpm --filter @rest-otm/marketing test
+      - run: pnpm --filter @rest-otm/superadmin test
       - run: pnpm --filter @rest-otm/print-agent test
       - run: pnpm --filter @rest-otm/gateway test
       - run: pnpm --filter @rest-otm/menu test
@@ -46,6 +48,7 @@ jobs:
       - run: pnpm run release:audit:cloud
       - run: pnpm --filter @rest-otm/admin build
       - run: pnpm --filter @rest-otm/waiter build
+      - run: pnpm --filter @rest-otm/marketing build
       - run: pnpm --filter @rest-otm/superadmin build
       - run: CLOUD_MENU_API_URL=https://cloud.example.invalid/api MENU_BASE_PATH= pnpm --filter @rest-otm/menu build
       - run: CLOUD_MENU_API_URL=https://cloud.example.invalid/api MENU_BASE_PATH=/menu pnpm --filter @rest-otm/menu build

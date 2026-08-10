@@ -1,4 +1,29 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# REST_OTM Superadmin
+
+Bulutta yalnız lisans ve işletme yönetimi için çalışan Next.js BFF/panelidir.
+Tarayıcı access/refresh token'larını okuyamaz; token'lar `HttpOnly`, `Secure`,
+`SameSite=Strict` cookie olarak tutulur.
+
+## İki aşamalı giriş
+
+1. BFF, API'nin `/auth/superadmin/mfa/start` endpoint'ine servis secret'i ile
+   bağlanır. API parolayı doğrular fakat henüz access/refresh token üretmez.
+2. Tek kullanımlık kodun yalnız HMAC özeti PostgreSQL'e yazılır; plaintext kod
+   Resend ile yöneticinin e-postasına gönderilmek üzere bir kez BFF'e döner.
+3. Kod doğrulanınca challenge API'de atomik olarak tüketilir ve ancak bundan
+   sonra token üretilir. Aynı kodun paralel/replay kullanımı oturum açamaz.
+
+Render'da gerekli secret'lar:
+
+- `REST_OTM_API_URL`: ör. `https://rest-otm-api.onrender.com/api`
+- `RESEND_API_KEY`
+- `SUPERADMIN_EMAIL_FROM`
+- `SUPERADMIN_SESSION_SECRET`: yalnız BFF cookie şifrelemesi için, en az 32 karakter
+- `SUPERADMIN_BFF_SERVICE_SECRET`: API ve BFF servisinde aynı, en az 32 karakter
+
+API servisinde ayrıca farklı bir `SUPERADMIN_MFA_PEPPER` bulunmalıdır.
+
+## Yerel geliştirme
 
 ## Getting Started
 

@@ -1,5 +1,7 @@
 import { CheckCircle2, MailCheck, MapPin, Phone, ShieldCheck, Store, User } from "lucide-react";
 import { VerificationCodeForm } from "./VerificationCodeForm";
+import { TurnstileWidget } from "./TurnstileWidget";
+import { DEMO_INPUT_LIMITS } from "@/lib/demo-input";
 
 type DemoStage = "form" | "verify" | "success" | "error";
 
@@ -25,12 +27,13 @@ export function DemoSection({ stage = "form", message }: { stage?: DemoStage; me
 }
 
 function RequestForm({ error }: { error?: string }) {
-  return <form action="/api/demo-request" method="post" className="space-y-4">
-    <Field icon={User} label="Ad Soyad" name="name" autoComplete="name" required />
-    <Field icon={Store} label="Restoran Adı" name="restaurant" autoComplete="organization" required />
-    <Field icon={MailCheck} label="İş E-postası" name="email" type="email" autoComplete="email" required />
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2"><Field icon={Phone} label="Telefon" name="phone" type="tel" autoComplete="tel" required /><Field icon={MapPin} label="Şehir" name="city" autoComplete="address-level2" /></div>
-    <div><label htmlFor="message" className="mb-1.5 block text-[12.5px] font-semibold text-ink">Not <span className="font-normal text-muted">(opsiyonel)</span></label><textarea id="message" name="message" rows={3} className="w-full rounded-md border border-line bg-bg px-3.5 py-2.5 text-[13.5px] text-ink outline-none transition placeholder:text-muted/70 focus:border-accent" placeholder="Şube sayısı, kullandığınız mevcut sistem vb." /></div>
+  return <form action="/api/demo-request" method="post" acceptCharset="UTF-8" className="space-y-4">
+    <Field icon={User} label="Ad Soyad" name="name" autoComplete="name" maxLength={DEMO_INPUT_LIMITS.name} required />
+    <Field icon={Store} label="Restoran Adı" name="restaurant" autoComplete="organization" maxLength={DEMO_INPUT_LIMITS.restaurant} required />
+    <Field icon={MailCheck} label="İş E-postası" name="email" type="email" autoComplete="email" maxLength={DEMO_INPUT_LIMITS.email} required />
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2"><Field icon={Phone} label="Telefon" name="phone" type="tel" autoComplete="tel" maxLength={DEMO_INPUT_LIMITS.phone} required /><Field icon={MapPin} label="Şehir" name="city" autoComplete="address-level2" maxLength={DEMO_INPUT_LIMITS.city} /></div>
+    <div><label htmlFor="message" className="mb-1.5 block text-[12.5px] font-semibold text-ink">Not <span className="font-normal text-muted">(opsiyonel)</span></label><textarea id="message" name="message" maxLength={DEMO_INPUT_LIMITS.message} rows={3} className="w-full rounded-md border border-line bg-bg px-3.5 py-2.5 text-[13.5px] text-ink outline-none transition placeholder:text-muted/70 focus:border-accent" placeholder="Şube sayısı, kullandığınız mevcut sistem vb." /></div>
+    <TurnstileWidget />
     {error && <p className="text-[13px] font-medium text-red-600">{error}</p>}
     <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-full bg-night px-5 py-3.5 text-[13.5px] font-bold text-white transition hover:bg-accent">E-postama doğrulama kodu gönder</button>
     <p className="text-center text-[11.5px] text-muted">Talep, yalnızca e-posta doğrulamasından sonra açılır.</p>
@@ -45,6 +48,6 @@ function Success() {
   return <div className="flex flex-col items-center py-10 text-center"><CheckCircle2 size={42} className="text-accent" /><h3 className="mt-4 text-[18px] font-bold text-ink">Talebiniz alındı</h3><p className="mt-2 max-w-[36ch] text-[13.5px] leading-relaxed text-muted">E-posta adresiniz doğrulandı. Ekibimiz talebinizdeki bilgilerle birlikte haberdar edildi; en kısa sürede size dönüş yapacağız.</p></div>;
 }
 
-function Field({ icon: Icon, label, name, type = "text", required, autoComplete }: { icon: typeof User; label: string; name: string; type?: string; required?: boolean; autoComplete?: string }) {
-  return <div><label htmlFor={name} className="mb-1.5 block text-[12.5px] font-semibold text-ink">{label} {required && <span className="text-accent">*</span>}</label><div className="relative"><Icon size={15} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" /><input id={name} name={name} type={type} required={required} autoComplete={autoComplete} className="w-full rounded-md border border-line bg-bg py-2.5 pl-10 pr-3.5 text-[13.5px] text-ink outline-none transition placeholder:text-muted/70 focus:border-accent" /></div></div>;
+function Field({ icon: Icon, label, name, type = "text", required, autoComplete, maxLength }: { icon: typeof User; label: string; name: string; type?: string; required?: boolean; autoComplete?: string; maxLength: number }) {
+  return <div><label htmlFor={name} className="mb-1.5 block text-[12.5px] font-semibold text-ink">{label} {required && <span className="text-accent">*</span>}</label><div className="relative"><Icon size={15} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" /><input id={name} name={name} type={type} required={required} autoComplete={autoComplete} maxLength={maxLength} className="w-full rounded-md border border-line bg-bg py-2.5 pl-10 pr-3.5 text-[13.5px] text-ink outline-none transition placeholder:text-muted/70 focus:border-accent" /></div></div>;
 }

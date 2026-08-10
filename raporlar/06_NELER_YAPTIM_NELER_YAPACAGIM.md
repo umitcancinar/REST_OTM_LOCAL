@@ -358,3 +358,31 @@ ağdaki garson telefonlarına ve yazıcılara hizmet veren profesyonel REST_OTM.
 - [ ] Gerçek restoran pilotu
 
 Bu kapılar tamamlanmadan ürün “nihai” olarak işaretlenmez.
+
+## 10 Ağustos 2026 — cloud giriş, demo maili ve web güvenliği
+
+- `BİTTİ` Marketing hero cihaz paneli gerçek operasyon metrikleri, hareketli
+  bağlantılar ve LAN/bulut ayrımını gösteren zengin görselle tamamlandı.
+- `BİTTİ` Dinamik favicon, Apple ikonu ve web manifest eklendi.
+- `BİTTİ` Demo talebi Resend üzerinden 6 haneli e-posta doğrulamasına bağlandı;
+  müşteri onayı ve işletme sahibine markalı HTML/plaintext bildirim hazır.
+- `BİTTİ` Demo formuna production fail-closed Cloudflare Turnstile, IP/e-posta
+  rate limit, cooldown, 16 KB body sınırı, alan doğrulama ve replay/çift gönderim
+  koruması eklendi.
+- `BİTTİ` Superadmin MFA challenge/deneme durumu PostgreSQL'e taşındı. Kod yalnız
+  pepper'lı HMAC olarak tutuluyor; 10 dakika, 5 deneme ve atomik tek-kullanım
+  uygulanıyor. Tokenlar yalnız başarılı MFA transaction'ından sonra üretiliyor.
+- `BİTTİ` Public login, PIN ve public refresh üzerinden SUPER_ADMIN MFA bypass
+  yolları kapatıldı; BFF/API iletişimi ayrı service secret ile korunuyor.
+- `BİTTİ` Marketing ve superadmin için CSP, HSTS, clickjacking/nosniff/referrer/
+  permissions/COOP/CORP başlıkları; superadmin mutasyonlarına Origin/Host tabanlı
+  CSRF kontrolü eklendi.
+- `BİTTİ` Render build'lerinde pnpm 9.15.0 ve frozen lockfile sabitlendi.
+- `BİTTİ` GitHub CI artık marketing ve superadmin güvenlik testlerini ve marketing
+  production build'ini de zorunlu çalıştırıyor.
+- `GEÇTİ` API 123/123, marketing 8/8, superadmin 6/6 test; 12 workspace
+  typecheck; API/marketing/superadmin production build; Prisma validate ve
+  diff-check. Lint sonucu 0 hata; mevcut eski uyarılar bu paketi engellemiyor.
+- `CANLI İÇİN KALDI` Resend ve Turnstile secret'larını Render'a girmek; API ve
+  superadmin ortak BFF secret'ını aynı değerle tanımlamak; API-only MFA pepper
+  üretmek; API migration deploy'undan sonra superadmin'i deploy etmek.

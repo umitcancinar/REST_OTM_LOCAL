@@ -136,6 +136,17 @@ export const cloudEnv = {
     'MENU_PUBLIC_ID_SECRET',
     'dev-menu-public-id-secret-CHANGE-ME-32bytes',
   ),
+  // Superadmin Next.js BFF ile API arasindaki makineden-makineye kimlik.
+  // Kullanici tarayicisina veya NEXT_PUBLIC_ degiskenine asla acilmaz.
+  SUPERADMIN_BFF_SERVICE_SECRET: requireSecret(
+    'SUPERADMIN_BFF_SERVICE_SECRET',
+    'dev-superadmin-bff-service-secret-change-me',
+  ),
+  // MFA kodlari DB'de plaintext degil bu pepper ile HMAC'lenmis tutulur.
+  SUPERADMIN_MFA_PEPPER: requireSecret(
+    'SUPERADMIN_MFA_PEPPER',
+    'dev-superadmin-mfa-pepper-change-me-32bytes',
+  ),
   SUPER_ADMIN_EMAIL: process.env.SUPER_ADMIN_EMAIL || 'admin@restotm.com',
   SUPER_ADMIN_PASSWORD: requireSecret(
     'SUPER_ADMIN_PASSWORD',

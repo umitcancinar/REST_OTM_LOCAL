@@ -4,6 +4,7 @@ import { cloudEnv } from '../config/env.cloud';
 import prisma from '../config/database';
 import { publicCmsLimiter } from '../middlewares/rateLimiter.middleware';
 import authRoutes from '../modules/auth/auth.routes';
+import superAdminMfaRoutes from '../modules/auth/superadmin-mfa.routes';
 import cloudMenuSyncRoutes from '../modules/cloud-menu-sync/cloud-menu-sync.routes';
 import cloudUpdateAdminRoutes, {
   cloudUpdateManifestRouter,
@@ -71,6 +72,7 @@ export function registerCloudProfile(
   options: { includeAuth?: boolean } = {},
 ): RuntimeLifecycle {
   if (options.includeAuth !== false) app.use('/api/auth', authRoutes);
+  if (options.includeAuth !== false) app.use('/api/auth/superadmin', superAdminMfaRoutes);
   app.use('/api/public', publicCmsLimiter, publicRoutes);
   app.use('/api/license', licenseRoutes);
   app.use('/api/license-admin', licenseAdminRoutes);
