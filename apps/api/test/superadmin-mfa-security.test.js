@@ -65,3 +65,11 @@ test('public auth paths cannot mint or refresh a superadmin session', () => {
   assert.match(authService, /decoded\.role === 'SUPER_ADMIN' && !allowSuperAdmin/);
   assert.match(authService, /role: 'WAITER', isActive: true, pin/);
 });
+
+test('cloud readiness requires PostgreSQL and superadmin bootstrap fails closed', () => {
+  assert.match(cloudProfile, /app\.get\('\/api\/ready'/);
+  assert.match(cloudProfile, /prisma\.\$queryRaw`SELECT 1`/);
+  assert.match(cloudProfile, /status\(503\)/);
+  assert.match(cloudProfile, /if \(attempt === retries\)[\s\S]*throw new Error\('SUPER_ADMIN bootstrap tamamlanamadi\.'/);
+  assert.doesNotMatch(cloudProfile, /if \(attempt === retries\) return/);
+});
