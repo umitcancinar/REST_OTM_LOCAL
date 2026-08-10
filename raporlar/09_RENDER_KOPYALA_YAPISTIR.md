@@ -75,7 +75,8 @@ aktarılır ve browser JavaScript'ine açılmaz.
 Önce yalnız Render adresleriyle test edilir; DNS henüz değiştirilmez.
 
 1. API event/log içinde migration ve uygulama başlangıcı hatasız olmalı.
-2. `https://rest-otm-control-api.onrender.com/api/health` HTTP 200 dönmeli.
+2. `https://rest-otm-control-api.onrender.com/api/ready` HTTP 200 dönmeli;
+   bu yanıt PostgreSQL sorgusu geçmeden başarı vermez.
 3. `https://rest-otm-superadmin.onrender.com` giriş ekranı açılmalı.
 4. Yanlış parola kullanıcı var/yok bilgisini sızdırmayan genel hata vermeli.
 5. Doğru parola sonrası patron e-postasına 6 haneli tek kullanımlık kod gelmeli.
@@ -120,4 +121,3 @@ olmadan sistem “yedekli” sayılmaz:
 Render alanları doldurulduktan ve public lisans/update anahtarları ilerideki
 Windows paketi için parola yöneticisine alındıktan sonra geçici dosya güvenli
 biçimde kaldırılır. Private key'ler Windows paketine veya GitHub'a konulmaz.
-

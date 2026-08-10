@@ -61,3 +61,7 @@ test('initial browser and API origins are pinned to the new Render services', ()
   assert.doesNotMatch(blueprint, /https:\/\/rets-otm\.onrender\.com/);
 });
 
+test('Render health check uses the PostgreSQL-backed cloud readiness route', () => {
+  assert.match(blueprint, /healthCheckPath: \/api\/ready/);
+  assert.doesNotMatch(blueprint, /healthCheckPath: \/api\/health/);
+});

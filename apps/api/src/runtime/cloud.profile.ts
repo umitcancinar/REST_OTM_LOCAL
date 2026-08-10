@@ -61,7 +61,12 @@ async function ensureAdminUser(retries = 3, delayMs = 3000): Promise<void> {
       return;
     } catch (error) {
       logger.error(`ensureAdminUser hatasi (${attempt}/${retries}):`, error);
-      if (attempt === retries) return;
+      // Control-plane bir SUPER_ADMIN hesabi olmadan "hazir" sayilamaz.
+      // Son denemede hatayi yutmak Render health check'ini yesil birakip
+      // yonetim yuzeyini kullanilamaz hale getiriyordu; fail-closed davran.
+      if (attempt === retries) {
+        throw new Error('SUPER_ADMIN bootstrap tamamlanamadi.', { cause: error });
+      }
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
@@ -71,6 +76,18 @@ export function registerCloudProfile(
   app: Application,
   options: { includeAuth?: boolean } = {},
 ): RuntimeLifecycle {
+  // Render readiness yalniz HTTP process'inin dinledigini degil, control-plane
+  // PostgreSQL'inin sorgulanabildigini da kanitlar. Hata ayrintisi response'a
+  // veya log'a tasinmaz; connection string sizdirilmaz.
+  app.get('/api/ready', async (_req, res) => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      res.json({ success: true, runtime: 'cloud', database: 'ready' });
+    } catch {
+      res.status(503).json({ success: false, message: 'Control plane is not ready.' });
+    }
+  });
+
   if (options.includeAuth !== false) app.use('/api/auth', authRoutes);
   if (options.includeAuth !== false) app.use('/api/auth/superadmin', superAdminMfaRoutes);
   app.use('/api/public', publicCmsLimiter, publicRoutes);
