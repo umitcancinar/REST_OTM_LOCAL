@@ -31,8 +31,18 @@ Bu Mac'te tek kullanımlık dosya hazırdır:
 ```
 
 Dosya izni `0600`'dür. Değerler GitHub'a, sohbete veya ekran görüntüsüne
-konulmaz. Dosyadaki `ALAN=değer` satırından yalnız `=` işaretinin sağ tarafı
-Render'daki aynı isimli alana kopyalanır.
+konulmaz. Dosyadaki değerler JSON-encoded olduğu için `=` işaretinin sağ tarafı
+ham olarak kopyalanmaz; aksi halde PEM satır sonları ve JSON biçimi bozulur.
+Aşağıdaki komut değeri çözüp doğrudan macOS panosuna kopyalar:
+
+```bash
+node -e 'const fs=require("fs");const k=process.argv[1];const l=fs.readFileSync("/private/tmp/rest-otm-control-plane-secrets.env","utf8").split("\n").find(x=>x.startsWith(k+"="));if(!l)throw new Error("secret bulunamadi: "+k);process.stdout.write(JSON.parse(l.slice(k.length+1)))' ALAN_ADI | pbcopy
+```
+
+`ALAN_ADI` sırasıyla `LICENSE_PRIVATE_KEY`, `LICENSE_KEY_PEPPERS`,
+`UPDATE_SIGNING_PRIVATE_KEY` ve `UPDATE_SIGNING_PUBLIC_KEY` ile değiştirilir.
+Komut çıktı üretmez; çözülen değer panoya alınır ve Render'daki aynı isimli
+alana yapıştırılır. PEM anahtarlarının gerçek satır sonları korunur.
 
 ## 2. Render Blueprint oluşturma
 
