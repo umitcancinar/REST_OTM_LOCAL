@@ -14,6 +14,8 @@
     "test": "pnpm --filter @rest-otm/license test && pnpm --filter @rest-otm/api test && pnpm --filter @rest-otm/print-agent test && pnpm --filter @rest-otm/gateway test && pnpm run test:release && pnpm run test:windows",
     "test:release": "node --test scripts/release/*.test.mjs",
     "test:windows": "node --test packaging/windows/tests/*.test.mjs",
+    "test:control-deploy": "node --test scripts/deploy/*.test.mjs",
+    "control:secrets": "node scripts/deploy/generate-control-plane-secrets.mjs",
     "release:build:api": "pnpm --filter @rest-otm/receipt-core build && pnpm --filter @rest-otm/license build && pnpm --filter @rest-otm/api build && pnpm run release:stage:api",
     "release:stage:api": "node scripts/release/stage-api-artifacts.mjs --profile all --dist apps/api/dist --out build/stage",
     "release:audit:local": "node scripts/release/audit-artifact.mjs --profile local --root build/stage/local",

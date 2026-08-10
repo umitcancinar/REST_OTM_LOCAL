@@ -1,0 +1,99 @@
+# REST_OTM cloud control-plane Blueprint.
+#
+# Deliberately separate from render.yaml: importing this file cannot adopt or
+# reconfigure the live marketing service, and it never touches the legacy
+# customer API hosted from the RETS_OTM repository.
+
+services:
+  - type: web
+    name: rest-otm-control-api
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    autoDeployTrigger: checksPass
+    healthCheckPath: /api/health
+    buildCommand: npm install -g pnpm@9.15.0 && pnpm install --prod=false --frozen-lockfile && pnpm --filter @rest-otm/receipt-core build && pnpm --filter @rest-otm/license build && pnpm --filter @rest-otm/api build
+    startCommand: cd apps/api && pnpm run start:cloud
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: RUNTIME_MODE
+        value: cloud
+      - key: PORT
+        value: 10000
+      - key: BIND_HOST
+        value: 0.0.0.0
+      # Neon pooled PostgreSQL connection string. The value is entered only in
+      # Render's secret store and is never committed.
+      - key: DATABASE_URL
+        sync: false
+      - key: LICENSE_PRIVATE_KEY
+        sync: false
+      - key: LICENSE_KEY_ACTIVE_PEPPER_VERSION
+        value: v1
+      - key: LICENSE_KEY_PEPPERS
+        sync: false
+      - key: MENU_PUBLIC_ID_SECRET
+        generateValue: true
+      - key: UPDATE_SIGNING_PRIVATE_KEY
+        sync: false
+      - key: UPDATE_SIGNING_PUBLIC_KEY
+        sync: false
+      - key: UPDATE_ARTIFACT_ALLOWED_ORIGINS
+        value: https://github.com,https://objects.githubusercontent.com
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_ACCESS_EXPIRES_IN
+        value: 15m
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 7d
+      - key: CORS_ORIGIN
+        value: https://rest-otm-superadmin.onrender.com
+      - key: SUPER_ADMIN_EMAIL
+        sync: false
+      - key: SUPER_ADMIN_PASSWORD
+        sync: false
+      # Generated once by Render and copied into the superadmin service through
+      # fromService below. It is never exposed to browser JavaScript.
+      - key: SUPERADMIN_BFF_SERVICE_SECRET
+        generateValue: true
+      - key: SUPERADMIN_MFA_PEPPER
+        generateValue: true
+
+  - type: web
+    name: rest-otm-superadmin
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    autoDeployTrigger: checksPass
+    buildCommand: npm install -g pnpm@9.15.0 && pnpm install --prod=false --frozen-lockfile && pnpm --filter @rest-otm/superadmin build
+    startCommand: pnpm --filter @rest-otm/superadmin exec next start --port $PORT
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: NEXT_PUBLIC_API_URL
+        value: https://rest-otm-control-api.onrender.com/api
+      - key: REST_OTM_API_URL
+        value: https://rest-otm-control-api.onrender.com/api
+      - key: SUPERADMIN_PUBLIC_URL
+        value: https://rest-otm-superadmin.onrender.com
+      - key: SUPERADMIN_ALLOWED_ORIGINS
+        value: https://rest-otm-superadmin.onrender.com
+      - key: RESEND_API_KEY
+        sync: false
+      - key: SUPERADMIN_EMAIL_FROM
+        value: REST_OTM Guvenlik <guvenlik@restoranyonetim.com>
+      - key: SUPERADMIN_SESSION_SECRET
+        generateValue: true
+      - key: SUPERADMIN_BFF_SERVICE_SECRET
+        fromService:
+          type: web
+          name: rest-otm-control-api
+          envVarKey: SUPERADMIN_BFF_SERVICE_SECRET
+
