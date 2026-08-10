@@ -1,9 +1,9 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { NextRequest, NextResponse } from "next/server";
+import { claimDemoChallenge } from "./demo-security";
 
 const COOKIE = "rest_otm_demo_pending";
 const TTL_MS = 10 * 60 * 1000;
-const MAX_ATTEMPTS = 5;
 export type PendingDemo = { id: string; name: string; restaurant: string; email: string; phone: string; city: string; message: string; codeHash: string; expiresAt: number; attempts: number; };
 
 function secret() { const value = process.env.DEMO_VERIFICATION_SECRET; if (!value || value.length < 32) throw new Error("DEMO_VERIFICATION_SECRET must be at least 32 characters"); return value; }
@@ -18,4 +18,14 @@ function unseal(token: string): PendingDemo | null { try { const [iv, tag, ciphe
 export function setPendingDemoCookie(response: NextResponse, pending: PendingDemo) { response.cookies.set(COOKIE, seal(pending), { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: TTL_MS / 1000 }); }
 export function clearPendingDemoCookie(response: NextResponse) { response.cookies.set(COOKIE, "", { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 0 }); }
 export function getPendingDemo(req: NextRequest) { const raw = req.cookies.get(COOKIE)?.value; return raw ? unseal(raw) : null; }
-export function verifyPendingCode(pending: PendingDemo, code: string): { ok: true } | { ok: false; expired: boolean; message: string; pending: PendingDemo } { if (Date.now() > pending.expiresAt) return { ok: false, expired: true, message: "Kodun süresi doldu. Lütfen yeni kod isteyin.", pending }; if (!/^\d{6}$/.test(code)) return { ok: false, expired: false, message: "6 haneli kodu girin.", pending }; if (pending.attempts >= MAX_ATTEMPTS) return { ok: false, expired: true, message: "Çok fazla hatalı deneme yapıldı. Lütfen yeni kod isteyin.", pending }; const received = Buffer.from(codeHash(pending.id, code), "hex"), expected = Buffer.from(pending.codeHash, "hex"); if (received.length !== expected.length || !timingSafeEqual(received, expected)) return { ok: false, expired: false, message: `Kod doğru değil. ${MAX_ATTEMPTS - pending.attempts - 1} deneme hakkınız kaldı.`, pending: { ...pending, attempts: pending.attempts + 1 } }; return { ok: true }; }
+export function verifyPendingCode(pending: PendingDemo, code: string): { ok: true } | { ok: false; expired: boolean; message: string; pending: PendingDemo } {
+  const validFormat = /^\d{6}$/.test(code);
+  const received = validFormat ? Buffer.from(codeHash(pending.id, code), "hex") : Buffer.alloc(0);
+  const expected = Buffer.from(pending.codeHash, "hex");
+  const matches = received.length === expected.length && timingSafeEqual(received, expected);
+  const claim = claimDemoChallenge(pending.id, matches);
+  if (claim.ok) return { ok: true };
+  if (claim.reason === "invalid") return { ok: false, expired: false, message: validFormat ? `Kod doğru değil. ${claim.remaining} deneme hakkınız kaldı.` : `6 haneli kodu girin. ${claim.remaining} deneme hakkınız kaldı.`, pending: { ...pending, attempts: pending.attempts + 1 } };
+  if (claim.reason === "busy") return { ok: false, expired: false, message: "Talebiniz şu anda işleniyor. Lütfen birkaç saniye bekleyin.", pending };
+  return { ok: false, expired: true, message: claim.reason === "attempts" ? "Çok fazla hatalı deneme yapıldı. Lütfen yeni kod isteyin." : "Doğrulama oturumunuz sona ermiş. Formu yeniden doldurun.", pending };
+}

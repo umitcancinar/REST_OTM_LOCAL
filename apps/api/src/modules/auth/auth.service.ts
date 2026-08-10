@@ -9,6 +9,7 @@ import prisma from '../../config/database';
 import { sharedEnv } from '../../config/env.shared';
 import { LoginInput, PinLoginInput, RegisterInput } from './auth.validation';
 import { logger } from '../../utils/logger';
+import type { Prisma } from '@prisma/client';
 
 /** Oturum kaydina eklenen istek baglami — hangi cihazdan acildigini gosterir. */
 export interface SessionContext {
@@ -45,9 +46,10 @@ function hashToken(token: string): string {
  * kopyayi siliyordu; calinmis bir kopya suresi dolana kadar (7 gun)
  * gecerli kalmaya devam ediyordu.
  */
-async function issueTokens(
+export async function issueTokens(
   payload: { userId: string; tenantId?: string | null; role: string },
   context?: SessionContext,
+  database: Pick<Prisma.TransactionClient, 'refreshToken'> = prisma,
 ) {
   const accessToken = jwt.sign(payload, sharedEnv.JWT_ACCESS_SECRET, {
     expiresIn: sharedEnv.JWT_ACCESS_EXPIRY as any,
@@ -71,7 +73,7 @@ async function issueTokens(
     ? new Date(decoded.exp * 1000)
     : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-  await prisma.refreshToken.create({
+  await database.refreshToken.create({
     data: {
       tokenHash: hashToken(refreshToken),
       userId: payload.userId,
@@ -88,10 +90,10 @@ async function issueTokens(
 export const authService = {
   /** Email + Password login */
   async login(input: LoginInput, context?: SessionContext) {
-    const { email, password, slug } = input;
+    const { email, slug } = input;
     
     // Find user by email and optionally slug
-    let user = await prisma.user.findFirst({
+    const user = await prisma.user.findFirst({
       where: { 
         email: { equals: email.toLowerCase(), mode: 'insensitive' },
         isActive: true,
@@ -100,23 +102,18 @@ export const authService = {
       include: { tenant: { select: { id: true, name: true, slug: true, isActive: true, subscriptionExpiresAt: true } } },
     });
 
-    // Fallback: If not found within the specific tenant, check if it's a SUPER_ADMIN attempting to login from a tenant page
-    if (!user && slug) {
-      user = await prisma.user.findFirst({
-        where: {
-          email: { equals: email.toLowerCase(), mode: 'insensitive' },
-          role: 'SUPER_ADMIN',
-          isActive: true
-        },
-        include: { tenant: { select: { id: true, name: true, slug: true, isActive: true, subscriptionExpiresAt: true } } },
-      });
-    }
-
     if (!user) {
       throw Object.assign(new Error('E-posta veya şifre hatalı.'), { statusCode: 401 });
     }
 
-    if (user.role !== 'SUPER_ADMIN' && user.tenant) {
+    // SUPER_ADMIN token'i yalniz PostgreSQL destekli MFA verify akisi
+    // uretebilir. Public login endpoint'i parolasi dogru olsa bile MFA'yi
+    // atlayamaz.
+    if (user.role === 'SUPER_ADMIN') {
+      throw Object.assign(new Error('E-posta veya şifre hatalı.'), { statusCode: 401 });
+    }
+
+    if (user.tenant) {
       if (!user.tenant.isActive) {
         throw Object.assign(new Error('Bu restoran hesabı aktif değil.'), { statusCode: 403 });
       }
@@ -149,22 +146,8 @@ export const authService = {
       data: { lastLoginAt: new Date() },
     });
 
-    // SUPER_ADMIN without a tenant: auto-assign the first active tenant
-    // so they can seamlessly use all panels (admin, waiter, etc.)
-    let effectiveTenantId = user.tenantId;
-    let effectiveTenant = user.tenant;
-
-    if (user.role === 'SUPER_ADMIN' && !effectiveTenantId) {
-      const firstTenant = await prisma.tenant.findFirst({
-        where: { isActive: true },
-        select: { id: true, name: true, slug: true, isActive: true, subscriptionExpiresAt: true },
-        orderBy: { createdAt: 'asc' },
-      });
-      if (firstTenant) {
-        effectiveTenantId = firstTenant.id;
-        effectiveTenant = firstTenant;
-      }
-    }
+    const effectiveTenantId = user.tenantId;
+    const effectiveTenant = user.tenant;
 
     const tokens = await issueTokens(
       {
@@ -203,7 +186,7 @@ export const authService = {
 
     // Fetch all active waiters for this tenant and bcrypt-compare PIN
     const users = await prisma.user.findMany({
-      where: { tenantId: tenant.id, isActive: true, pin: { not: null } },
+      where: { tenantId: tenant.id, role: 'WAITER', isActive: true, pin: { not: null } },
     });
 
     // Tip acikca yazilir: strictNullChecks altinda `= null` baslangici tek
@@ -310,13 +293,19 @@ export const authService = {
    * kullanimda imkansizdir; bu yuzden o an kullanicinin TUM oturumlari
    * kapatilir ve yeniden giris istenir.
    */
-  async refreshToken(refreshToken: string, context?: SessionContext) {
+  async refreshToken(refreshToken: string, context?: SessionContext, allowSuperAdmin = false) {
     try {
       const decoded = jwt.verify(refreshToken, sharedEnv.JWT_REFRESH_SECRET) as {
         userId: string;
         tenantId: string;
         role: string;
       };
+
+      // Superadmin refresh de yalniz service-auth ile korunan BFF endpoint'i
+      // uzerinden yapilir; token tek basina public refresh yolunda yetmez.
+      if (decoded.role === 'SUPER_ADMIN' && !allowSuperAdmin) {
+        throw Object.assign(new Error('Geçersiz oturum.'), { statusCode: 401 });
+      }
 
       // ─── Token bizim verdigimiz, hala gecerli bir token mi? ───────────
       // JWT imzasinin dogru olmasi yetmez: iptal edilmis bir token'in

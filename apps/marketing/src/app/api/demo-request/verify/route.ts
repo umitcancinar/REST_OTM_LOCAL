@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { clearPendingDemoCookie, getPendingDemo, setPendingDemoCookie, verifyPendingCode } from "@/lib/demo-verification";
 import { sendDemoNotifications } from "@/lib/demo-mail";
+import { finishDemoChallenge } from "@/lib/demo-security";
 
 export const runtime = "nodejs";
 
@@ -18,6 +19,7 @@ export async function POST(req: NextRequest) {
   const code = (directCode || digitCode).replace(/\s/g, "");
   const result = verifyPendingCode(pending, code);
   if (!result.ok) { const response = redirect(req, result.expired ? "error" : "verify", result.message); if (!result.expired) setPendingDemoCookie(response, result.pending); else clearPendingDemoCookie(response); return response; }
-  try { await sendDemoNotifications(pending); } catch (error) { console.error("[demo-request] notification emails failed", error); return redirect(req, "verify", "Talep bildirimi gönderilemedi. Lütfen tekrar deneyin."); }
+  try { await sendDemoNotifications(pending); } catch (error) { finishDemoChallenge(pending.id, false); console.error("[demo-request] notification emails failed", error); return redirect(req, "verify", "Talep bildirimi gönderilemedi. Lütfen tekrar deneyin."); }
+  finishDemoChallenge(pending.id, true);
   const response = redirect(req, "success"); clearPendingDemoCookie(response); return response;
 }
