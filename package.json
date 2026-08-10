@@ -16,6 +16,7 @@
     "test:windows": "node --test packaging/windows/tests/*.test.mjs",
     "test:control-deploy": "node --test scripts/deploy/*.test.mjs",
     "control:secrets": "node scripts/deploy/generate-control-plane-secrets.mjs",
+    "control:secrets:file": "node scripts/deploy/generate-control-plane-secrets.mjs --out /private/tmp/rest-otm-control-plane-secrets.env",
     "release:build:api": "pnpm --filter @rest-otm/receipt-core build && pnpm --filter @rest-otm/license build && pnpm --filter @rest-otm/api build && pnpm run release:stage:api",
     "release:stage:api": "node scripts/release/stage-api-artifacts.mjs --profile all --dist apps/api/dist --out build/stage",
     "release:audit:local": "node scripts/release/audit-artifact.mjs --profile local --root build/stage/local",

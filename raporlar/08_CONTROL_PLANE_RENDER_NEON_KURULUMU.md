@@ -54,6 +54,18 @@ Render Dashboard'da marketing ile aynı workspace/proje seçilir:
 - `SUPER_ADMIN_EMAIL`: yalnız yöneticinin doğrulanmış e-posta adresi.
 - `SUPER_ADMIN_PASSWORD`: parola yöneticisinde üretilmiş benzersiz güçlü parola.
 
+İmza anahtarlarını sohbet veya GitHub'a yapıştırmadan üretmek için:
+
+```bash
+corepack pnpm run control:secrets:file
+```
+
+Komut `/private/tmp/rest-otm-control-plane-secrets.env` dosyasını yalnız mevcut
+macOS kullanıcısının okuyabildiği `0600` izniyle ve **yalnız bir kez** oluşturur.
+Dosya zaten varsa üzerine yazmaz. Render alanlarına aktarım bittikten ve public
+anahtarlar Windows paketleme kasasına kaydedildikten sonra geçici dosya güvenli
+biçimde kaldırılmalıdır.
+
 ### Superadmin için dışarıdan girilecek değerler
 
 - `RESEND_API_KEY`: yalnız gönderim yetkili restricted production key.
@@ -77,4 +89,3 @@ Blueprint referansıyla aktarılır; tarayıcıya açılmaz.
 - [ ] Backup/PITR hedefi ve gerçek restore testi kayıt altına alındı.
 - [ ] Custom domain + TLS tamamlandı.
 - [ ] Windows 11 temiz makine pilotu — bu turda bilerek ertelendi.
-

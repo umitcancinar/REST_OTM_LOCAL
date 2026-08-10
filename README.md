@@ -81,6 +81,11 @@ Bu komut geliştirme profilinde tüm uygulamaları paralel olarak başlatır:
 > kurulamaz. Güncel durum için
 > `raporlar/06_NELER_YAPTIM_NELER_YAPACAGIM.md` dosyasına bakın.
 
+Yeni lisans/control-plane Render kurulumu mevcut müşteri API'sinden ayrıdır.
+Operasyon kartı için
+[`raporlar/09_RENDER_KOPYALA_YAPISTIR.md`](raporlar/09_RENDER_KOPYALA_YAPISTIR.md)
+dosyasını kullanın.
+
 ## 📁 Proje Yapısı
 
 ```

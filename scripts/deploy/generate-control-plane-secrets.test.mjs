@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import { createPrivateKey, createPublicKey } from 'node:crypto';
+import { mkdtemp, readFile, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import {
   generateControlPlaneSecrets,
   renderEnvBundle,
+  writeSecretBundle,
 } from './generate-control-plane-secrets.mjs';
 
 test('control-plane bundle uses distinct valid Ed25519 trust roots', () => {
@@ -40,3 +44,13 @@ test('render output labels private and public material without shell syntax', ()
   assert.doesNotMatch(output, /export\s+[A-Z_]+=/);
 });
 
+test('secret bundle is written once with owner-only permissions', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'rest-otm-secrets-'));
+  const filePath = join(directory, 'control-plane.env');
+  await writeSecretBundle(filePath);
+
+  const metadata = await stat(filePath);
+  assert.equal(metadata.mode & 0o777, 0o600);
+  assert.match(await readFile(filePath, 'utf8'), /LICENSE_PRIVATE_KEY=/);
+  await assert.rejects(writeSecretBundle(filePath), { code: 'EEXIST' });
+});
