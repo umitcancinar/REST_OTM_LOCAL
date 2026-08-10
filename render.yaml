@@ -76,6 +76,8 @@ services:
         value: production
       - key: PORT
         value: 10000
+      - key: MARKETING_PUBLIC_URL
+        value: https://www.restoranyonetim.com
       # Demo talebi e-posta doğrulaması: Resend API anahtarı ve doğrulanmış
       # sender adresi Render Secret olarak girilir; kaynak koda yazılmaz.
       - key: RESEND_API_KEY
