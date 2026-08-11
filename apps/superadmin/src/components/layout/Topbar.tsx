@@ -62,7 +62,7 @@ export default function Topbar() {
     localStorage.removeItem('user');
     localStorage.removeItem('impersonatedTenantId');
     localStorage.removeItem('impersonatedTenantName');
-    router.replace('/');
+    router.replace('/login');
   };
 
   return (

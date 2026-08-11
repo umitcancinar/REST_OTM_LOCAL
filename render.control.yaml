@@ -51,7 +51,7 @@ services:
       - key: JWT_REFRESH_EXPIRES_IN
         value: 7d
       - key: CORS_ORIGIN
-        value: https://rest-otm-superadmin.onrender.com
+        value: https://rest-otm-superadmin.onrender.com,https://yonetim.restoranyonetim.com
       - key: SUPER_ADMIN_EMAIL
         sync: false
       - key: SUPER_ADMIN_PASSWORD
@@ -84,7 +84,15 @@ services:
       - key: SUPERADMIN_PUBLIC_URL
         value: https://rest-otm-superadmin.onrender.com
       - key: SUPERADMIN_ALLOWED_ORIGINS
-        value: https://rest-otm-superadmin.onrender.com
+        value: https://rest-otm-superadmin.onrender.com,https://yonetim.restoranyonetim.com
+      # Cloudflare Turnstile is enforced before credentials reach the API.
+      # Production deliberately fails closed when either key is missing.
+      - key: NEXT_PUBLIC_TURNSTILE_SITE_KEY
+        sync: false
+      - key: TURNSTILE_SECRET_KEY
+        sync: false
+      - key: TURNSTILE_ALLOWED_HOSTNAMES
+        value: rest-otm-superadmin.onrender.com,yonetim.restoranyonetim.com
       - key: RESEND_API_KEY
         sync: false
       - key: SUPERADMIN_EMAIL_FROM

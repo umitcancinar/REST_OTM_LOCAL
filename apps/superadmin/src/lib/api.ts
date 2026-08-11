@@ -19,7 +19,7 @@ async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {
     localStorage.removeItem('user');
     localStorage.removeItem('impersonatedTenantId');
     localStorage.removeItem('impersonatedTenantName');
-    window.location.href = '/';
+    window.location.href = '/login';
   }
 
   const data = await response.json();

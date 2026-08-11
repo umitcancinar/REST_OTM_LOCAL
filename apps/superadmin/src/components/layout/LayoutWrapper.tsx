@@ -7,12 +7,7 @@ import { useLayout } from '@/context/LayoutContext';
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-const ROLE_PERMISSIONS: Record<string, string[]> = {
-  SUPER_ADMIN: ['/overview', '/tables', '/orders', '/menu', '/takeaway', '/customers', '/inventory', '/staff', '/reports', '/settings', '/super-admin'],
-  OWNER: ['/overview', '/tables', '/orders', '/menu', '/takeaway', '/customers', '/inventory', '/staff', '/reports', '/settings'],
-  ADMIN: ['/overview', '/tables', '/orders', '/menu', '/takeaway', '/customers', '/inventory', '/staff', '/reports', '/settings'],
-  CASHIER: ['/orders', '/takeaway'],
-};
+const SUPERADMIN_ROUTES = ['/admin', '/tenants', '/settings'];
 
 export default function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const { isCollapsed } = useLayout();
@@ -22,43 +17,47 @@ export default function LayoutWrapper({ children }: { children: React.ReactNode 
   const [impersonatedName, setImpersonatedName] = useState<string | null>(null);
 
   useEffect(() => {
-    const userData = localStorage.getItem('user');
-    if (!userData) {
-      router.push('/');
-      return;
-    }
+    const controller = new AbortController();
+    setIsAuthorized(false);
 
-    const user = JSON.parse(userData);
-    const allowedRoutes = ROLE_PERMISSIONS[user.role] || [];
-    
-    // Check if current route is allowed
-    const isAllowed = allowedRoutes.some(route => pathname.startsWith(route));
+    async function validateServerSession() {
+      try {
+        // Authentication is authoritative on the BFF. localStorage is never an
+        // access-control boundary and only receives harmless display metadata.
+        const response = await fetch('/api/backend/auth/profile', {
+          cache: 'no-store',
+          credentials: 'same-origin',
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error('unauthorized');
+        const payload = await response.json();
+        const user = payload?.data;
+        if (!user || user.role !== 'SUPER_ADMIN') throw new Error('forbidden');
 
-    if (!isAllowed) {
-      if (user.role === 'WAITER') {
-        // Waiters shouldn't be here at all. Clear storage and kick out.
+        localStorage.setItem('user', JSON.stringify(user));
+
+        const isAllowed = SUPERADMIN_ROUTES.some((route) => pathname.startsWith(route));
+        if (!isAllowed) {
+          router.replace('/admin');
+          return;
+        }
+
+        const impId = localStorage.getItem('impersonatedTenantId');
+        const impName = localStorage.getItem('impersonatedTenantName');
+        setImpersonatedName(impId ? impName || impId : null);
+        setIsAuthorized(true);
+      } catch {
+        if (controller.signal.aborted) return;
         localStorage.removeItem('user');
-        router.push('/');
-        return;
+        localStorage.removeItem('impersonatedTenantId');
+        localStorage.removeItem('impersonatedTenantName');
+        localStorage.removeItem('impersonatedFeatures');
+        router.replace('/login');
       }
-      // Redirect to default page for role
-      if (user.role === 'CASHIER') {
-        router.push('/orders');
-      } else {
-        router.push('/overview');
-      }
-    } else {
-      setIsAuthorized(true);
     }
 
-    // Check impersonation
-    const impId = localStorage.getItem('impersonatedTenantId');
-    const impName = localStorage.getItem('impersonatedTenantName');
-    if (impId) {
-      setImpersonatedName(impName || impId);
-    } else {
-      setImpersonatedName(null);
-    }
+    void validateServerSession();
+    return () => controller.abort();
   }, [pathname, router]);
 
   if (!isAuthorized) return null;

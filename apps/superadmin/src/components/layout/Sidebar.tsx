@@ -4,19 +4,11 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
-  UtensilsCrossed,
-  ClipboardList,
-  BookOpen,
-  Package2,
-  BarChart2,
   Settings,
   ChevronLeft,
   ChevronRight,
   Building2,
   Sparkles,
-  PhoneCall,
-  UsersRound,
-  UserCheck,
   X,
   Globe,
   ChefHat,
@@ -26,7 +18,7 @@ import { useLayout } from '@/context/LayoutContext';
 import { useState, useEffect } from 'react';
 
 const MENU_ITEMS = [
-  { href: '/dashboard', label: 'Genel Bakış', icon: LayoutDashboard, roles: ['SUPER_ADMIN'] },
+  { href: '/admin', label: 'Genel Bakış', icon: LayoutDashboard, roles: ['SUPER_ADMIN'] },
   { href: '/tenants', label: 'Restoranlar (Müşteriler)', icon: Building2, roles: ['SUPER_ADMIN'] },
   { href: '/settings', label: 'Sistem Ayarları', icon: Settings, roles: ['SUPER_ADMIN'] },
 ] as const;

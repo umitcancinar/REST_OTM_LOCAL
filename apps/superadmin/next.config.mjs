@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 const isProduction = process.env.NODE_ENV === 'production';
 
 function configuredConnectSources() {
-  const sources = new Set(["'self'"]);
+  const sources = new Set(["'self'", 'https://challenges.cloudflare.com']);
   const configured = process.env.NEXT_PUBLIC_API_URL;
 
   if (configured) {
@@ -28,12 +28,14 @@ const contentSecurityPolicy = [
   "form-action 'self'",
   "frame-ancestors 'none'",
   "object-src 'none'",
-  // App Router requires its inline bootstrap. No third-party scripts are allowed.
-  "script-src 'self' 'unsafe-inline'",
+  // App Router requires its inline bootstrap. Cloudflare is restricted to the
+  // Turnstile challenge origin used on the administrator login route.
+  "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "img-src 'self' data: blob:",
   "font-src 'self' data: https://fonts.gstatic.com",
   `connect-src ${configuredConnectSources()}`,
+  "frame-src https://challenges.cloudflare.com",
   "worker-src 'self' blob:",
   ...(isProduction ? ['upgrade-insecure-requests'] : []),
 ].join('; ');
@@ -68,6 +70,12 @@ const nextConfig = {
   },
   async headers() {
     return [{ source: '/(.*)', headers: securityHeaders }];
+  },
+  async redirects() {
+    return [
+      { source: '/', destination: '/login', permanent: false },
+      { source: '/dashboard', destination: '/admin', permanent: false },
+    ];
   },
 };
 

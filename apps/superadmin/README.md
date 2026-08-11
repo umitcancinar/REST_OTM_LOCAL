@@ -20,8 +20,15 @@ Render'da gerekli secret'lar:
 - `SUPERADMIN_EMAIL_FROM`
 - `SUPERADMIN_SESSION_SECRET`: yalnız BFF cookie şifrelemesi için, en az 32 karakter
 - `SUPERADMIN_BFF_SERVICE_SECRET`: API ve BFF servisinde aynı, en az 32 karakter
+- `NEXT_PUBLIC_TURNSTILE_SITE_KEY`: admin hostname'lerini kapsayan Cloudflare site key
+- `TURNSTILE_SECRET_KEY`: yalnız BFF'te kalan Cloudflare secret key
+- `TURNSTILE_ALLOWED_HOSTNAMES`: virgülle ayrılmış kesin admin hostname listesi
 
 API servisinde ayrıca farklı bir `SUPERADMIN_MFA_PEPPER` bulunmalıdır.
+
+Üretimde Turnstile anahtarı veya hostname listesi eksikse giriş fail-closed
+çalışır; parola API'ye iletilmez. Giriş tamamlanınca yalnız HttpOnly cookie ile
+`/admin` açılır. `/dashboard` geriye uyumluluk için `/admin`e yönlendirilir.
 
 ## Yerel geliştirme
 
