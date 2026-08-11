@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
-import { Building2, Plus, Search, CheckCircle2, XCircle, MoreVertical } from 'lucide-react';
+import { Plus, Search, CheckCircle2, XCircle, MoreVertical } from 'lucide-react';
 import styles from './page.module.css';
 
 export default function TenantsPage() {
@@ -23,6 +23,8 @@ export default function TenantsPage() {
 
   useEffect(() => {
     fetchTenants();
+    const query = new URLSearchParams(window.location.search).get('q');
+    if (query) setSearchTerm(query);
   }, []);
 
   const filteredTenants = tenants.filter(t => 

@@ -26,14 +26,22 @@ const MENU_ITEMS = [
 export default function Sidebar() {
   const pathname = usePathname();
   const { isCollapsed, toggleSidebar, isMobileMenuOpen, closeMobileMenu } = useLayout();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<{ role?: string; tenantName?: string } | null>(null);
   const [tenantFeatures, setTenantFeatures] = useState<Record<string, any>>({});
+  const [impersonatedTenantName, setImpersonatedTenantName] = useState('');
 
   useEffect(() => {
     const userData = localStorage.getItem('user');
     if (userData) {
-      setUser(JSON.parse(userData));
+      try {
+        const parsed: unknown = JSON.parse(userData);
+        if (parsed && typeof parsed === 'object') {
+          setUser(parsed as { role?: string; tenantName?: string });
+        }
+      } catch {}
     }
+
+    setImpersonatedTenantName(localStorage.getItem('impersonatedTenantName') || '');
 
     // Load tenant features for sidebar filtering
     const impFeatures = localStorage.getItem('impersonatedFeatures');
@@ -56,9 +64,11 @@ export default function Sidebar() {
   const filteredItems = MENU_ITEMS.filter(item => {
     if (!user) return true;
     const roles = item.roles as readonly string[];
-    if (!roles.includes(user.role)) return false;
+    if (!user.role || !roles.includes(user.role)) return false;
     return true;
   });
+  const footerName = impersonatedTenantName || user?.tenantName || 'REST_OTM Kontrol Merkezi';
+  const footerStatus = user?.role === 'SUPER_ADMIN' ? 'Bulut Yönetimi · Aktif' : 'Pro Plan · Aktif';
 
   return (
     <>
@@ -185,14 +195,14 @@ export default function Sidebar() {
 
       {/* Footer — Tenant Info */}
       <div className={styles.footer}>
-        <div className={styles.tenantBadge} title={isCollapsed ? (user?.tenantName || 'TARİHİ ADANA KEBAPÇISI') : ''}>
+        <div className={styles.tenantBadge} title={isCollapsed ? footerName : ''}>
           <div className={styles.tenantAvatar}>
             <Building2 size={16} strokeWidth={2} />
           </div>
           {!isCollapsed && (
             <div className={styles.tenantInfo}>
-              <p className={styles.tenantName}>{typeof window !== 'undefined' && localStorage.getItem('impersonatedTenantName') || user?.tenantName || 'TARİHİ ADANA KEBAPÇISI'}</p>
-              <p className={styles.tenantPlan}>Pro Plan · Aktif</p>
+              <p className={styles.tenantName}>{footerName}</p>
+              <p className={styles.tenantPlan}>{footerStatus}</p>
             </div>
           )}
         </div>

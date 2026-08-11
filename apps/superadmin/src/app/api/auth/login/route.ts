@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { controlApiUrl, readControlApiJson } from "@/lib/control-api";
-import { sendAdminVerificationEmail } from "@/lib/server-mail";
+import { AdminMailError, adminMailUserMessage, sendAdminVerificationEmail } from "@/lib/server-mail";
 import { createPendingMfa, setPendingMfa } from "@/lib/server-session";
 import { mutationRequestError } from "@/lib/request-security";
 import { verifyTurnstile } from "@/lib/turnstile";
@@ -43,6 +43,12 @@ export async function POST(req: NextRequest) {
     setPendingMfa(response, pending);
     return response;
   } catch (error) {
+    if (error instanceof AdminMailError) {
+      return NextResponse.json(
+        { message: adminMailUserMessage(error) },
+        { status: 503 },
+      );
+    }
     console.error("[superadmin-login]", error);
     return NextResponse.json({ message: "Giriş doğrulaması başlatılamadı." }, { status: 502 });
   }

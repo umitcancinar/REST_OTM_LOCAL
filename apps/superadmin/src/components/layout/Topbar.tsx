@@ -53,7 +53,7 @@ export default function Topbar() {
 
   const handleSearch = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && searchTerm.trim()) {
-      router.push(`/orders?q=${encodeURIComponent(searchTerm)}`);
+      router.push(`/tenants?q=${encodeURIComponent(searchTerm.trim())}`);
     }
   };
 
@@ -80,7 +80,7 @@ export default function Topbar() {
           <Search size={15} strokeWidth={2} className={styles.searchIcon} />
           <input
             type="text"
-            placeholder="Sipariş no, müşteri veya menü ara..."
+            placeholder="Restoran adı veya slug ara..."
             className={styles.searchInput}
             id="global-search"
             value={searchTerm}

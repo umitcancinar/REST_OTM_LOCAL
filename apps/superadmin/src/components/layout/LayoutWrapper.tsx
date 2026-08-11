@@ -4,15 +4,12 @@ import React from 'react';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 import { useLayout } from '@/context/LayoutContext';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-
-const SUPERADMIN_ROUTES = ['/admin', '/tenants', '/settings'];
 
 export default function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const { isCollapsed } = useLayout();
   const router = useRouter();
-  const pathname = usePathname();
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [impersonatedName, setImpersonatedName] = useState<string | null>(null);
 
@@ -36,12 +33,6 @@ export default function LayoutWrapper({ children }: { children: React.ReactNode 
 
         localStorage.setItem('user', JSON.stringify(user));
 
-        const isAllowed = SUPERADMIN_ROUTES.some((route) => pathname.startsWith(route));
-        if (!isAllowed) {
-          router.replace('/admin');
-          return;
-        }
-
         const impId = localStorage.getItem('impersonatedTenantId');
         const impName = localStorage.getItem('impersonatedTenantName');
         setImpersonatedName(impId ? impName || impId : null);
@@ -58,7 +49,7 @@ export default function LayoutWrapper({ children }: { children: React.ReactNode 
 
     void validateServerSession();
     return () => controller.abort();
-  }, [pathname, router]);
+  }, [router]);
 
   if (!isAuthorized) return null;
 
@@ -67,7 +58,7 @@ export default function LayoutWrapper({ children }: { children: React.ReactNode 
     localStorage.removeItem('impersonatedTenantName');
     localStorage.removeItem('impersonatedFeatures');
     setImpersonatedName(null);
-    window.location.href = '/super-admin';
+    window.location.href = '/admin';
   };
 
   return (

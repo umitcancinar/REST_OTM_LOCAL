@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
-import { Building2, Users } from 'lucide-react';
+import { Building2 } from 'lucide-react';
 
 export default function SuperAdminDashboard() {
   const [stats, setStats] = useState({ totalTenants: 0, totalUsers: 0 });
