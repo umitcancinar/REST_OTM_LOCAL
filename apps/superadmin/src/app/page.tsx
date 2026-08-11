@@ -2,6 +2,7 @@
 
 import { useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { Mail, Lock, LogIn, Loader2, AlertCircle, Sparkles, MailCheck, ShieldCheck } from 'lucide-react';
+import { AdminTurnstile } from '@/components/auth/AdminTurnstile';
 import styles from './page.module.css';
 
 export default function LoginPage() {
@@ -13,6 +14,8 @@ export default function LoginPage() {
   const [emailHint, setEmailHint] = useState('');
   const [stage, setStage] = useState<'credentials' | 'verification'>('credentials');
   const [verificationPhase, setVerificationPhase] = useState<'idle' | 'orbiting' | 'verified'>('idle');
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,23 +26,26 @@ export default function LoginPage() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, turnstileToken }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
         setError(data.message || 'Giriş başarısız');
+        setTurnstileResetKey((value) => value + 1);
         return;
       }
 
       if (!data.requiresVerification) throw new Error('E-posta doğrulaması başlatılamadı.');
       setEmailHint(data.emailHint || email);
+      setPassword('');
       setStage('verification');
 
 
     } catch {
       setError('Sunucuya bağlanılamadı');
+      setTurnstileResetKey((value) => value + 1);
     } finally {
       setIsLoading(false);
     }
@@ -58,10 +64,8 @@ export default function LoginPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Kod doğrulanamadı.');
       setVerificationPhase('verified');
-      // Sadece görüntüleme için zararsız profil bilgisi tutulur; tokenlar HttpOnly cookie'dedir.
-      localStorage.setItem('user', JSON.stringify(data.data.user));
       await new Promise((resolve) => window.setTimeout(resolve, 850));
-      window.location.href = '/dashboard';
+      window.location.href = '/admin';
     } catch (err) {
       setVerificationPhase('idle');
       setError(err instanceof Error ? err.message : 'Doğrulama yapılamadı.');
@@ -125,6 +129,11 @@ export default function LoginPage() {
             </div>
           </div>
 
+          <AdminTurnstile
+            onTokenChange={setTurnstileToken}
+            resetKey={turnstileResetKey}
+          />
+
           {error && (
             <div className={styles.errorMessage}>
               <AlertCircle size={15} strokeWidth={2} />
@@ -135,7 +144,7 @@ export default function LoginPage() {
           <button
             type="submit"
             className={styles.loginBtn}
-            disabled={isLoading}
+            disabled={isLoading || !turnstileToken}
             id="login-submit"
           >
             {isLoading ? (

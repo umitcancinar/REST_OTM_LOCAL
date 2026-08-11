@@ -29,12 +29,6 @@ export function Footer() {
               {l.label}
             </a>
           ))}
-          <a
-            href="https://panel.restoranyonetim.com"
-            className="transition hover:text-white"
-          >
-            Panel Girişi
-          </a>
         </nav>
       </div>
       <div className="border-t border-white/10 py-6">

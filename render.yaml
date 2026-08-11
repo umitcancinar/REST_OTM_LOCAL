@@ -78,6 +78,10 @@ services:
         value: 10000
       - key: MARKETING_PUBLIC_URL
         value: https://www.restoranyonetim.com
+      # The public site intentionally exposes no admin link. Operators who know
+      # /login are redirected to the separately isolated control-plane UI.
+      - key: SUPERADMIN_LOGIN_URL
+        value: https://rest-otm-superadmin.onrender.com/login
       # Demo talebi e-posta doğrulaması: Resend API anahtarı ve doğrulanmış
       # sender adresi Render Secret olarak girilir; kaynak koda yazılmaz.
       - key: RESEND_API_KEY

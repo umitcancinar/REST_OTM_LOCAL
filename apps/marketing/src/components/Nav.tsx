@@ -71,12 +71,6 @@ export function Nav() {
 
           <div className="hidden items-center gap-5 md:flex">
             <a
-              href="https://panel.restoranyonetim.com"
-              className="text-[12.5px] font-semibold text-white/75 transition hover:text-white"
-            >
-              Giriş
-            </a>
-            <a
               href="#demo"
               className="inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2.5 text-[12.5px] font-bold text-night transition hover:bg-accent hover:text-white"
             >
@@ -117,12 +111,6 @@ export function Nav() {
                   {l.label}
                 </a>
               ))}
-              <a
-                href="https://panel.restoranyonetim.com"
-                className="py-3.5 text-[15px] font-semibold text-white/85"
-              >
-                Giriş
-              </a>
               <a
                 href="#demo"
                 onClick={() => setOpen(false)}

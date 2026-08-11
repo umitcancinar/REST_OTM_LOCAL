@@ -74,6 +74,14 @@ alana yapıştırılır. PEM anahtarlarının gerçek satır sonları korunur.
 | Render key | Girilecek değer |
 |---|---|
 | `RESEND_API_KEY` | Resend'de yalnız gönderim yetkili restricted production key |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Cloudflare Turnstile widget'ındaki site key |
+| `TURNSTILE_SECRET_KEY` | Aynı widget'ın yalnız Render'a girilen secret key'i |
+
+Turnstile widget'ındaki hostname listesinde mevcut marketing adresleri
+korunarak `rest-otm-superadmin.onrender.com` ve
+`yonetim.restoranyonetim.com` bulunmalıdır. Superadmin servisinde
+`TURNSTILE_ALLOWED_HOSTNAMES` değeri bu iki adresin virgülle ayrılmış halidir.
+Bu yapılandırma eksikse giriş güvenlik amacıyla kapalı kalır.
 
 Blueprint'in otomatik ürettiği `JWT_*`, `MENU_PUBLIC_ID_SECRET`,
 `SUPERADMIN_MFA_PEPPER`, `SUPERADMIN_SESSION_SECRET` ve BFF servis sırrı elle
@@ -87,11 +95,11 @@ aktarılır ve browser JavaScript'ine açılmaz.
 1. API event/log içinde migration ve uygulama başlangıcı hatasız olmalı.
 2. `https://rest-otm-control-api.onrender.com/api/ready` HTTP 200 dönmeli;
    bu yanıt PostgreSQL sorgusu geçmeden başarı vermez.
-3. `https://rest-otm-superadmin.onrender.com` giriş ekranı açılmalı.
+3. `https://rest-otm-superadmin.onrender.com/login` giriş ekranı ve Turnstile açılmalı.
 4. Yanlış parola kullanıcı var/yok bilgisini sızdırmayan genel hata vermeli.
 5. Doğru parola sonrası patron e-postasına 6 haneli tek kullanımlık kod gelmeli.
 6. Yanlış, süresi geçmiş ve tekrar kullanılan kod reddedilmeli.
-7. Giriş sonrası tenant ve lisans ekranı açılmalı.
+7. Giriş sonrası URL `/admin` olmalı; tenant ve lisans ekranı açılmalı.
 
 Bu kabul bitmeden `panel.restoranyonetim.com`,
 `yonetim.restoranyonetim.com` veya `api.restoranyonetim.com` DNS kayıtları
