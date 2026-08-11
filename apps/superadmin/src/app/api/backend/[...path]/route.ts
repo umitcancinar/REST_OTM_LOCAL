@@ -1,17 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { controlApiUrl, readControlApiJson } from "@/lib/control-api";
 import { mutationRequestError } from "@/lib/request-security";
 import { setSession, tokens } from "@/lib/server-session";
 
 export const runtime = "nodejs";
 
-function base() {
-  const value = process.env.REST_OTM_API_URL;
-  if (!value) throw new Error("REST_OTM_API_URL is not configured");
-  return value.replace(/\/$/, "");
-}
-
 async function upstream(req: NextRequest, accessToken: string, path: string[], body?: string) {
-  const url = new URL(`${base()}/${path.map(encodeURIComponent).join("/")}`);
+  const url = new URL(controlApiUrl(path.map(encodeURIComponent).join("/")));
   url.search = req.nextUrl.search;
   return fetch(url, {
     method: req.method,
@@ -21,6 +16,8 @@ async function upstream(req: NextRequest, accessToken: string, path: string[], b
       ...(req.headers.get("x-tenant-id") ? { "x-tenant-id": req.headers.get("x-tenant-id")! } : {}),
     },
     body: body || undefined,
+    cache: "no-store",
+    redirect: "error",
   });
 }
 
@@ -37,7 +34,7 @@ async function handler(req: NextRequest, context: { params: Promise<{ path: stri
     let refreshed: { accessToken: string; refreshToken: string } | null = null;
 
     if (result.status === 401 && current.refreshToken && process.env.SUPERADMIN_BFF_SERVICE_SECRET) {
-      const refresh = await fetch(`${base()}/auth/superadmin/refresh`, {
+      const refresh = await fetch(controlApiUrl("auth/superadmin/refresh"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -45,9 +42,10 @@ async function handler(req: NextRequest, context: { params: Promise<{ path: stri
         },
         body: JSON.stringify({ refreshToken: current.refreshToken }),
         cache: "no-store",
+        redirect: "error",
       });
       if (refresh.ok) {
-        const json = await refresh.json();
+        const json = await readControlApiJson<{ data?: { accessToken?: string; refreshToken?: string } }>(refresh, "superadmin-refresh");
         const nextTokens = json.data as { accessToken?: string; refreshToken?: string };
         if (nextTokens.accessToken && nextTokens.refreshToken) {
           refreshed = { accessToken: nextTokens.accessToken, refreshToken: nextTokens.refreshToken };

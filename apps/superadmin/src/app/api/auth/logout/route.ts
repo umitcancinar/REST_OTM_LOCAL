@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { controlApiUrl } from "@/lib/control-api";
 import { mutationRequestError } from "@/lib/request-security";
 import { clearSession, tokens } from "@/lib/server-session";
 export async function POST(req: NextRequest) {
@@ -8,7 +9,7 @@ export async function POST(req: NextRequest) {
   const { refreshToken } = tokens(req);
   if (refreshToken && process.env.REST_OTM_API_URL) {
     try {
-      await fetch(`${process.env.REST_OTM_API_URL.replace(/\/$/, "")}/auth/logout`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refreshToken }) });
+      await fetch(controlApiUrl("auth/logout"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refreshToken }), cache: "no-store", redirect: "error" });
     } catch {
       /* session is still cleared locally */
     }

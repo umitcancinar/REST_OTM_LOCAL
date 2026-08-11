@@ -1,12 +1,12 @@
 import { createHmac } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { controlApiUrl, readControlApiJson } from "@/lib/control-api";
 import { sendAdminVerificationEmail } from "@/lib/server-mail";
 import { createPendingMfa, setPendingMfa } from "@/lib/server-session";
 import { mutationRequestError } from "@/lib/request-security";
 import { verifyTurnstile } from "@/lib/turnstile";
 
 export const runtime = "nodejs";
-function apiBase() { const value = process.env.REST_OTM_API_URL; if (!value) throw new Error("REST_OTM_API_URL is not configured"); return value.replace(/\/$/, ""); }
 function clientRateKey(req: NextRequest) { const secret = process.env.SUPERADMIN_BFF_SERVICE_SECRET!; const forwarded = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "unknown"; return createHmac("sha256", secret).update(forwarded).digest("hex"); }
 export async function POST(req: NextRequest) {
   const originError = mutationRequestError(req);
@@ -32,8 +32,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const upstream = await fetch(`${apiBase()}/auth/superadmin/mfa/start`, { method: "POST", headers: { "Content-Type": "application/json", "User-Agent": req.headers.get("user-agent") || "REST_OTM Superadmin", "x-rest-otm-service-secret": process.env.SUPERADMIN_BFF_SERVICE_SECRET, "x-rest-otm-client-key": clientRateKey(req) }, body: JSON.stringify({ email, password }), cache: "no-store" });
-    const payload = await upstream.json();
+    const upstream = await fetch(controlApiUrl("auth/superadmin/mfa/start"), { method: "POST", headers: { "Content-Type": "application/json", "User-Agent": req.headers.get("user-agent") || "REST_OTM Superadmin", "x-rest-otm-service-secret": process.env.SUPERADMIN_BFF_SERVICE_SECRET, "x-rest-otm-client-key": clientRateKey(req) }, body: JSON.stringify({ email, password }), cache: "no-store", redirect: "error" });
+    const payload = await readControlApiJson<{ message?: string; data?: { challengeId?: string; code?: string; expiresAt?: string; email?: string; emailHint?: string } }>(upstream, "superadmin-mfa-start");
     if (!upstream.ok) return NextResponse.json({ message: payload?.message || "E-posta, parola veya doğrulama bilgisi hatalı." }, { status: upstream.status });
     const data = payload.data;
     if (!data?.challengeId || !data?.code || !data?.expiresAt || !data?.email) return NextResponse.json({ message: "Doğrulama servisi geçersiz yanıt verdi." }, { status: 502 });
