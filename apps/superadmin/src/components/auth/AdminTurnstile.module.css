@@ -10,8 +10,8 @@
 }
 
 .widget {
-  width: 100%;
   min-height: 65px;
+  min-width: 300px;
 }
 
 .error {

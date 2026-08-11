@@ -21,14 +21,14 @@ export default function LayoutWrapper({ children }: { children: React.ReactNode 
       try {
         // Authentication is authoritative on the BFF. localStorage is never an
         // access-control boundary and only receives harmless display metadata.
-        const response = await fetch('/api/backend/auth/profile', {
+        const response = await fetch('/api/auth/session', {
           cache: 'no-store',
           credentials: 'same-origin',
           signal: controller.signal,
         });
-        if (!response.ok) throw new Error('unauthorized');
         const payload = await response.json();
-        const user = payload?.data;
+        if (payload?.state === 'unavailable') throw new Error('unavailable');
+        const user = payload?.state === 'authenticated' ? payload.user : null;
         if (!user || user.role !== 'SUPER_ADMIN') throw new Error('forbidden');
 
         localStorage.setItem('user', JSON.stringify(user));

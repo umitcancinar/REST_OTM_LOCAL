@@ -12,7 +12,7 @@ type TurnstileApi = {
       action: string;
       theme: 'light';
       language: string;
-      size: 'flexible';
+      size: 'normal';
       retry: 'auto';
       'refresh-expired': 'auto';
       callback: (token: string) => void;
@@ -56,7 +56,7 @@ export function AdminTurnstile({
       action: ACTION,
       theme: 'light',
       language: 'tr',
-      size: 'flexible',
+      size: 'normal',
       retry: 'auto',
       'refresh-expired': 'auto',
       callback: (token) => {
