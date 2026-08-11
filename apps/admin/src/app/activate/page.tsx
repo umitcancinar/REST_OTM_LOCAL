@@ -16,6 +16,7 @@ import {
   RefreshCw,
   ShieldAlert,
   ShieldCheck,
+  UserRound,
   Wifi,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -23,7 +24,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import styles from './page.module.css';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
-const LICENSE_KEY_PATTERN = /^RSTO(?:-[A-HJ-NP-Z2-9]{4}){4}$/;
+const LICENSE_KEY_PATTERN = /^RSTO(?:-[A-HJ-NP-Z2-9]{4}){3}$/;
 
 type LicenseState =
   | 'valid'
@@ -49,6 +50,18 @@ interface LocalLicenseStatus {
   entitlement?: LicenseEntitlement;
   lastCheckedAt: string;
   nextHeartbeatAt?: string;
+  setupRequired?: boolean;
+  setupSession?: {
+    accessToken: string;
+    user: {
+      id: string;
+      tenantId: string;
+      email: string;
+      name: string;
+      role: 'OWNER';
+      sessionType: 'local_setup';
+    };
+  };
 }
 
 interface ApiEnvelope<T> {
@@ -69,7 +82,7 @@ interface StatusCopy {
 }
 
 function formatLicenseKey(input: string): string {
-  const raw = input.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20);
+  const raw = input.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
   return raw.match(/.{1,4}/g)?.join('-') ?? '';
 }
 
@@ -92,6 +105,17 @@ function copyForStatus(status: LocalLicenseStatus | null): StatusCopy {
       nextStep: 'Servis yanıt verdiğinde durum otomatik olarak güncellenecek.',
       tone: 'neutral',
       icon: Wifi,
+    };
+  }
+
+  if (status.setupRequired) {
+    return {
+      eyebrow: 'Son kurulum adımı',
+      title: 'İlk yöneticiyi oluşturun',
+      detail: status.message,
+      nextStep: 'Bu hesap yalnızca müşterinin bilgisayarındaki yerel veritabanına kaydedilir.',
+      tone: 'neutral',
+      icon: UserRound,
     };
   }
 
@@ -305,10 +329,9 @@ export default function ActivatePage() {
     event.preventDefault();
     const formattedKey = formatLicenseKey(licenseKey);
     if (!LICENSE_KEY_PATTERN.test(formattedKey)) {
-      setFeedback('Anahtarı RSTO-XXXX-XXXX-XXXX-XXXX biçiminde eksiksiz girin.');
+      setFeedback('Anahtarı RSTO-XXXX-XXXX-XXXX biçiminde eksiksiz girin.');
       return;
     }
-
     setIsActivating(true);
     setFeedback('');
     try {
@@ -321,6 +344,13 @@ export default function ActivatePage() {
       if (envelope.data) applyStatus(envelope.data);
       if (!response.ok || !envelope.success) {
         throw new Error(envelope.message || 'Lisans etkinleştirilemedi.');
+      }
+      if (envelope.data?.setupSession) {
+        localStorage.setItem('accessToken', envelope.data.setupSession.accessToken);
+        localStorage.removeItem('refreshToken');
+        localStorage.setItem('user', JSON.stringify(envelope.data.setupSession.user));
+        window.location.replace('/staff');
+        return;
       }
       setShowKey(false);
       setLicenseKey('');
@@ -412,12 +442,12 @@ export default function ActivatePage() {
                 type={showKey ? 'text' : 'password'}
                 value={licenseKey}
                 onChange={(event) => setLicenseKey(formatLicenseKey(event.target.value))}
-                placeholder="RSTO-XXXX-XXXX-XXXX-XXXX"
+                placeholder="RSTO-XXXX-XXXX-XXXX"
                 autoComplete="new-password"
                 autoCapitalize="characters"
                 spellCheck={false}
                 inputMode="text"
-                maxLength={24}
+                maxLength={19}
                 aria-describedby="key-help activation-feedback"
                 disabled={isActivating}
               />
@@ -431,7 +461,7 @@ export default function ActivatePage() {
                 {showKey ? <EyeOff size={19} aria-hidden="true" /> : <Eye size={19} aria-hidden="true" />}
               </button>
             </div>
-            <p id="key-help" className={styles.fieldHelp}>Anahtarınız RSTO ile başlar ve beş bloktan oluşur.</p>
+            <p id="key-help" className={styles.fieldHelp}>Anahtarınız RSTO ile başlar ve toplam dört bloktan oluşur.</p>
 
             <button type="submit" className={styles.primaryButton} disabled={formBusy || !licenseKey}>
               {isActivating ? <Loader2 className={styles.spinner} size={19} /> : <ShieldCheck size={19} />}

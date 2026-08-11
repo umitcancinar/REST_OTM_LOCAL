@@ -356,7 +356,8 @@ function Assert-RestOtmInstallerContract {
         'jwtAccessSecret',
         'jwtRefreshSecret',
         'backupEncryptionKey',
-        'gatewayControlSecret'
+        'gatewayControlSecret',
+        'tableQrSigningSecret'
     )
     if (($contract.secrets.required_values | ConvertTo-Json -Compress) -ne
         ($requiredSecrets | ConvertTo-Json -Compress)) {
@@ -368,6 +369,7 @@ function Assert-RestOtmInstallerContract {
         api = @('127.0.0.1', 4100)
         admin = @('127.0.0.1', 3100)
         waiter = @('127.0.0.1', 3200)
+        menu = @('127.0.0.1', 3300)
         print_agent = @('127.0.0.1', 4300)
     }
     foreach ($entry in $expectedEndpoints.GetEnumerator()) {
@@ -390,8 +392,9 @@ function Assert-RestOtmInstallerContract {
         [ordered]@{ name = 'local-api'; role = 'local-api'; relative_executable = 'api/restotm-api.exe'; relative_working_directory = 'api'; depends_on = @('postgres') },
         [ordered]@{ name = 'admin-ui'; role = 'admin-ui'; relative_executable = 'admin/restotm-admin.exe'; relative_working_directory = 'admin'; depends_on = @('local-api') },
         [ordered]@{ name = 'waiter-ui'; role = 'waiter-ui'; relative_executable = 'waiter/restotm-waiter.exe'; relative_working_directory = 'waiter'; depends_on = @('local-api') },
+        [ordered]@{ name = 'menu-ui'; role = 'menu-ui'; relative_executable = 'menu/restotm-menu.exe'; relative_working_directory = 'menu'; depends_on = @('local-api') },
         [ordered]@{ name = 'print-agent'; role = 'print-agent'; relative_executable = 'print-agent/restotm-print-agent.exe'; relative_working_directory = 'print-agent'; depends_on = @('local-api') },
-        [ordered]@{ name = 'lan-gateway'; role = 'lan-gateway'; relative_executable = 'gateway/restotm-lan-gateway.exe'; relative_working_directory = 'gateway'; depends_on = @('local-api', 'admin-ui', 'waiter-ui') }
+        [ordered]@{ name = 'lan-gateway'; role = 'lan-gateway'; relative_executable = 'gateway/restotm-lan-gateway.exe'; relative_working_directory = 'gateway'; depends_on = @('local-api', 'admin-ui', 'waiter-ui', 'menu-ui') }
     )
     if ($contract.children.Count -ne $expectedChildren.Count) {
         throw 'Canonical child process sayisi gecersiz.'
@@ -428,12 +431,16 @@ function Assert-RestOtmArtifactContractAlignment {
         'installer-bootstrap' = [string]$Contract.bootstrap_executable_relative_path
         'postgres-server' = 'postgres/bin/postgres.exe'
         'postgres-client' = 'postgres/bin/pg_dump.exe'
+        'postgres-restore' = 'postgres/bin/pg_restore.exe'
+        'node-runtime' = 'runtime/node.exe'
         'local-api' = 'api/restotm-api.exe'
         'admin-ui' = 'admin/restotm-admin.exe'
         'waiter-ui' = 'waiter/restotm-waiter.exe'
+        'menu-ui' = 'menu/restotm-menu.exe'
         'print-agent' = 'print-agent/restotm-print-agent.exe'
         'lan-gateway' = 'gateway/restotm-lan-gateway.exe'
         'license-public-key' = [string]$Contract.license_public_key_relative_path
+        'update-public-key' = [string]$Contract.update_public_key_relative_path
     }
     foreach ($entry in $expectedRolePaths.GetEnumerator()) {
         $matches = @($Manifest.files | Where-Object role -eq $entry.Key)

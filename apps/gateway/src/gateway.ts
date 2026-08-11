@@ -89,7 +89,15 @@ function filteredHeaders(request: IncomingMessage, target: GatewayTarget): Incom
   const headers: IncomingHttpHeaders = {};
   for (const [name, value] of Object.entries(request.headers)) {
     const lower = name.toLowerCase();
-    if (HOP_BY_HOP_HEADERS.has(lower) || lower.startsWith('x-forwarded-') || value === undefined) continue;
+    // Origin gateway'de Host ile birebir dogrulandi. Icerideki loopback API'ye
+    // tasimak, dinamik LAN IP/mDNS originlerini ikinci bir CORS katmaninda
+    // yanlislikla reddeder. API'ye disaridan dogrudan erisim zaten yoktur.
+    if (
+      HOP_BY_HOP_HEADERS.has(lower)
+      || lower.startsWith('x-forwarded-')
+      || lower === 'origin'
+      || value === undefined
+    ) continue;
     headers[lower] = value;
   }
 

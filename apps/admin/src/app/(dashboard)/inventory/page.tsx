@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import * as XLSX from 'xlsx';
+import { downloadCsv } from '@/lib/csv';
 import styles from './page.module.css';
 import { api } from '@/lib/api';
 import Portal from '@/components/ui/Portal';
@@ -32,7 +32,7 @@ export default function InventoryPage() {
     loadInventory();
   }, []);
 
-  const exportToExcel = () => {
+  const exportToCsv = () => {
     const dataToExport = items.map(item => ({
       'Ürün Adı': item.name,
       'Mevcut Stok': item.currentStock,
@@ -43,10 +43,7 @@ export default function InventoryPage() {
       'Durum': item.currentStock <= item.minStockAlert ? 'KRİTİK' : 'YETERLİ'
     }));
 
-    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Stok Listesi');
-    XLSX.writeFile(workbook, `Rest_OTM_Stok_${new Date().toLocaleDateString('tr-TR')}.xlsx`);
+    downloadCsv(dataToExport, `Rest_OTM_Stok_${new Date().toISOString().slice(0, 10)}.csv`);
   };
 
   const handleAddItem = async (e: React.FormEvent) => {
@@ -124,7 +121,7 @@ export default function InventoryPage() {
           <p className={styles.subtitle}>Envanter durumu ve stok takibi</p>
         </div>
         <div className={styles.headerActions}>
-           <button className="btn btn-ghost" onClick={exportToExcel}>Dışarı Aktar (Excel)</button>
+           <button className="btn btn-ghost" onClick={exportToCsv}>Dışarı Aktar (CSV)</button>
            <button className="btn btn-primary" onClick={() => setShowAddModal(true)}>+ Stok Ekle</button>
         </div>
       </div>

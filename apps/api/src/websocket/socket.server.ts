@@ -33,6 +33,8 @@ function safeCompare(a: string, b: string): boolean {
 export interface SocketServerOptions {
   /** Her baglanti ve gelen olayda diskteki imzali lisansi yeniden dogrular. */
   assertOperationalLicense?: () => void;
+  /** Lokal kurulumda tenant kimligi istemciden degil imzali lisanstan gelir. */
+  getLicensedTenantId?: () => string;
 }
 
 export function initializeSocketServer(
@@ -67,7 +69,12 @@ export function initializeSocketServer(
     // Special authentication for Local Print Agent
     if (agentType === 'print-agent') {
       const declaredTenantId = socket.handshake.auth.tenantId as string | undefined;
-      if (!declaredTenantId) {
+      const licensedTenantId = options.getLicensedTenantId?.();
+      if (licensedTenantId && declaredTenantId && declaredTenantId !== licensedTenantId) {
+        return next(new Error('Print Agent tenantId does not match signed license'));
+      }
+      const tenantId = licensedTenantId || declaredTenantId;
+      if (!tenantId) {
         return next(new Error('Print Agent must provide a tenantId'));
       }
 
@@ -81,7 +88,7 @@ export function initializeSocketServer(
       // GERIYE DONUK UYUMLULUK icin global sirra dusuluyor — boylece mevcut
       // canli kurulum kirilmiyor, sadece yeni/yenilenen tenant'lar izole olur.
       const tenant = await prisma.tenant.findUnique({
-        where: { id: declaredTenantId },
+        where: { id: tenantId },
         select: { id: true, printAgentSecret: true },
       });
 
@@ -96,7 +103,7 @@ export function initializeSocketServer(
       if (safeCompare(String(token), expectedSecret)) {
         socket.userId = 'print-agent';
         socket.role = 'PRINT_AGENT';
-        socket.tenantId = declaredTenantId;
+        socket.tenantId = tenantId;
         return next();
       } else {
         return next(new Error('Invalid print agent secret'));
@@ -109,7 +116,23 @@ export function initializeSocketServer(
         userId: string;
         tenantId: string;
         role: string;
+        sessionType?: string;
       };
+
+      if (decoded.sessionType === 'local_setup') {
+        return next(new Error('Setup session cannot open WebSocket'));
+      }
+      const activeUser = await prisma.user.findUnique({
+        where: { id: decoded.userId },
+        select: { tenantId: true, role: true, isActive: true },
+      });
+      if (
+        !activeUser?.isActive
+        || activeUser.role !== decoded.role
+        || activeUser.tenantId !== decoded.tenantId
+      ) {
+        return next(new Error('Session user is no longer active'));
+      }
 
       socket.userId = decoded.userId;
       socket.tenantId = decoded.tenantId;

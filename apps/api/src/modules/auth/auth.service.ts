@@ -17,6 +17,15 @@ export interface SessionContext {
   ip?: string;
 }
 
+export type SessionType = 'user' | 'local_setup';
+
+export function issueAccessToken(
+  payload: { userId: string; tenantId?: string | null; role: string; sessionType?: SessionType },
+  expiresIn: string = sharedEnv.JWT_ACCESS_EXPIRY,
+): string {
+  return jwt.sign(payload, sharedEnv.JWT_ACCESS_SECRET, { expiresIn: expiresIn as any });
+}
+
 /** Role → redirect path mapping */
 const ROLE_REDIRECTS: Record<string, string> = {
   SUPER_ADMIN: '/super-admin',
@@ -51,9 +60,7 @@ export async function issueTokens(
   context?: SessionContext,
   database: Pick<Prisma.TransactionClient, 'refreshToken'> = prisma,
 ) {
-  const accessToken = jwt.sign(payload, sharedEnv.JWT_ACCESS_SECRET, {
-    expiresIn: sharedEnv.JWT_ACCESS_EXPIRY as any,
-  });
+  const accessToken = issueAccessToken({ ...payload, sessionType: 'user' });
 
   // jti (rastgele token kimligi) SART: JWT'nin 'iat' alani saniye
   // hassasiyetinde oldugu icin, ayni kullanici icin ayni saniyede uretilen

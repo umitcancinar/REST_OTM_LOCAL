@@ -40,6 +40,7 @@ export interface LocalLicenseStatusView {
   daysLeft?: number;
   lastCheckedAt: string;
   nextHeartbeatAt?: string;
+  setupRequired?: boolean;
 }
 
 export interface LocalLicenseStatusEvent {

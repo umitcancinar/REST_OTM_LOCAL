@@ -6,16 +6,18 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { sharedEnv } from '../config/env.shared';
 import { apiError } from '../utils/apiResponse';
+import prisma from '../config/database';
 
 export interface AuthenticatedRequest extends Request {
   user?: {
     userId: string;
     tenantId: string;
     role: string;
+    sessionType?: 'user' | 'local_setup';
   };
 }
 
-export function authMiddleware(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+export async function authMiddleware(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const authHeader = req.headers.authorization;
 
@@ -35,12 +37,36 @@ export function authMiddleware(req: AuthenticatedRequest, res: Response, next: N
       userId: string;
       tenantId: string;
       role: string;
+      sessionType?: 'user' | 'local_setup';
     };
+
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: { tenantId: true, role: true, isActive: true },
+    });
+    if (
+      !user?.isActive
+      || user.role !== decoded.role
+      || (user.tenantId ?? null) !== (decoded.tenantId ?? null)
+    ) {
+      apiError(res, 401, 'Oturum kullanicisi artik aktif degil.');
+      return;
+    }
+
+    if (decoded.sessionType === 'local_setup') {
+      const path = req.originalUrl.split('?', 1)[0];
+      const allowed = path === '/api/staff' && (req.method === 'GET' || req.method === 'POST');
+      if (!allowed) {
+        apiError(res, 403, 'Ilk kurulum oturumu yalniz Personel ekranini kullanabilir.');
+        return;
+      }
+    }
 
     req.user = {
       userId: decoded.userId,
       tenantId: decoded.tenantId,
       role: decoded.role,
+      sessionType: decoded.sessionType ?? 'user',
     };
 
     next();

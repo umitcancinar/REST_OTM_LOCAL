@@ -72,7 +72,11 @@ function connect(): void {
   console.log(`🧾 Fiş render motoru: v${RENDER_ENGINE_VERSION}`);
 
   socket = io(config.wsUrl, {
-    auth: { token: config.secret, agentType: 'print-agent', tenantId: config.tenantId },
+    auth: {
+      token: config.secret,
+      agentType: 'print-agent',
+      ...(config.tenantId ? { tenantId: config.tenantId } : {}),
+    },
     reconnection: true,
     reconnectionDelay: config.reconnectInterval,
     reconnectionAttempts: Infinity,

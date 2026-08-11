@@ -11,10 +11,11 @@ Open blockers intentionally left outside this increment:
 - Media upload/object storage is not implemented. Only already-public,
   credentials-free HTTPS asset URLs are projected. Relative paths, local LAN
   URLs, localhost/private addresses and URL fragments/query strings are omitted.
-- Raw license key plus hardware ID is replayable if both are copied from a
-  compromised machine. The next protocol version must replace these long-lived
-  headers with a short-lived heartbeat-issued sync token and TPM/CNG-backed
-  challenge signing.
+- Heartbeat ile verilen Ed25519 imzali menu sync token'i 70 dakika gecerlidir;
+  uzun omurlu lisans anahtari menu yayin ucuna gonderilmez. Tam ele gecirilmis
+  bir makineden kisa omurlu token yine suresi dolana kadar replay edilebilir.
+  Bu son cihaz-sahipligi boslugu Windows TPM/CNG challenge imzasi ile
+  kapatilmalidir.
 - `Tenant.customDomain` is cloud-owned and cannot be selected by a local
   publisher, but there is no DNS/domain-ownership verification state in the
   current schema. A verified-domain workflow is required before arbitrary

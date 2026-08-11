@@ -12,7 +12,7 @@
 // mesru bir durumdur ve restoran calismaya devam etmelidir. Kilitleme
 // yalnizca cevrimdisi tolerans suresi asildiginda devreye girer.
 
-import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, renameSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { computeHardwareId, shortHardwareId } from './hardware';
 import { advanceState, verifyLicense } from './verify';
@@ -20,6 +20,7 @@ import { LicenseState, LicenseStatus, SignedLicense } from './types';
 
 const LICENSE_FILE = 'license.json';
 const STATE_FILE = 'license-state.json';
+const SYNC_TOKEN_FILE = 'menu-sync-token.json';
 
 /** Yoklama istegi zaman asimi. Kisa tutuluyor: acilisi bekletmemeli. */
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -69,7 +70,28 @@ export function readStoredState(dir: string): LicenseState | undefined {
   }
 }
 
-function persist(dir: string, license: SignedLicense | null, state: LicenseState | null) {
+function syncTokenPath(dir: string) {
+  return join(dir, SYNC_TOKEN_FILE);
+}
+
+/** Menü yayını için heartbeat ile dönen kısa ömürlü, opak bearer grant. */
+export function readStoredMenuSyncToken(dir: string): string | null {
+  try {
+    const parsed = JSON.parse(readFileSync(syncTokenPath(dir), 'utf8')) as { token?: unknown };
+    return typeof parsed.token === 'string' && parsed.token.length >= 100 && parsed.token.length <= 2048
+      ? parsed.token
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function persist(
+  dir: string,
+  license: SignedLicense | null,
+  state: LicenseState | null,
+  syncToken?: string | null,
+) {
   mkdirSync(dir, { recursive: true });
   const atomicWrite = (target: string, value: unknown) => {
     const temporary = `${target}.next`;
@@ -78,6 +100,10 @@ function persist(dir: string, license: SignedLicense | null, state: LicenseState
   };
   if (license) atomicWrite(licensePath(dir), license);
   if (state) atomicWrite(statePath(dir), state);
+  if (typeof syncToken === 'string') atomicWrite(syncTokenPath(dir), { token: syncToken });
+  else if (syncToken === null) {
+    try { unlinkSync(syncTokenPath(dir)); } catch {}
+  }
 }
 
 // ─── Ag ────────────────────────────────────────────────────────────
@@ -89,6 +115,7 @@ interface ServerResponse {
     license: SignedLicense;
     serverTime: string;
     heartbeatIntervalHours: number;
+    syncToken?: string | null;
   };
 }
 
@@ -169,7 +196,7 @@ export async function activate(cfg: ClientConfig, licenseKey: string): Promise<A
   }
 
   const state = advanceState(previousState, new Date(status.license.issuedAt));
-  persist(cfg.dataDir, res.data.license, state);
+  persist(cfg.dataDir, res.data.license, state, res.data.syncToken);
 
   return { ok: true, message: 'Lisans etkinleştirildi.', status };
 }
@@ -215,7 +242,7 @@ export async function heartbeat(cfg: ClientConfig): Promise<LicenseStatus> {
         ['valid', 'expired', 'grace_exceeded', 'license_disabled'].includes(candidate.state)
       ) {
         const state = advanceState(previousState, new Date(candidate.license.issuedAt));
-        persist(cfg.dataDir, res.data.license, state);
+        persist(cfg.dataDir, res.data.license, state, res.data.syncToken);
         return candidate;
       }
     }

@@ -19,6 +19,7 @@
     "control:secrets:file": "node scripts/deploy/generate-control-plane-secrets.mjs --out /private/tmp/rest-otm-control-plane-secrets.env",
     "release:build:api": "pnpm --filter @rest-otm/receipt-core build && pnpm --filter @rest-otm/license build && pnpm --filter @rest-otm/api build && pnpm run release:stage:api",
     "release:stage:api": "node scripts/release/stage-api-artifacts.mjs --profile all --dist apps/api/dist --out build/stage",
+    "release:bundle:api:local": "node scripts/release/bundle-api-npm-runtime.mjs --deploy-root build/api-runtime-deploy --stage-root build/stage/local",
     "release:audit:local": "node scripts/release/audit-artifact.mjs --profile local --root build/stage/local",
     "release:audit:cloud": "node scripts/release/audit-artifact.mjs --profile cloud --root build/stage/cloud",
     "lint": "pnpm -r run lint",
@@ -49,5 +50,38 @@
   "packageManager": "pnpm@9.15.0",
   "devDependencies": {
     "pnpm": "9.15.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "phin@<3.7.1": ">=3.7.1",
+      "file-type@>=13.0.0 <21.3.1": ">=21.3.1",
+      "postcss@<8.5.10": ">=8.5.10",
+      "protobufjs@<=7.5.5": ">=7.5.6",
+      "@protobufjs/utf8@<=1.1.0": ">=1.1.1",
+      "fast-xml-builder@<=1.1.6": ">=1.1.7",
+      "fast-xml-builder@=1.1.5": ">=1.1.6",
+      "ws@>=8.0.0 <8.20.1": ">=8.20.1",
+      "protobufjs@<=7.5.7": ">=7.5.8",
+      "@tootallnate/once@<2.0.1": ">=2.0.1",
+      "uuid@<11.1.1": ">=11.1.1",
+      "qs@>=6.11.1 <=6.15.1": ">=6.15.2",
+      "@grpc/grpc-js@>=1.14.0 <1.14.4": ">=1.14.4",
+      "form-data@<2.5.6": ">=2.5.6",
+      "ws@>=8.0.0 <8.21.0": ">=8.21.0",
+      "websocket-driver@<0.7.5": ">=0.7.5",
+      "protobufjs@<=7.6.0": ">=7.6.1",
+      "protobufjs@<=7.6.2": ">=7.6.3",
+      "@babel/core@<=7.29.0": ">=7.29.6",
+      "engine.io@>=4.1.0 <6.6.7": ">=6.6.7",
+      "protobufjs@>=7.5.0 <=7.6.4": ">=7.6.5",
+      "body-parser@<1.20.6": ">=1.20.6",
+      "sharp@<0.35.0": ">=0.35.0",
+      "postcss@<=8.5.11": ">=8.5.12",
+      "postcss@<=8.5.17": ">=8.5.18",
+      "postcss@<=8.5.22": ">=8.5.23",
+      "socket.io-parser@>=4.0.0 <4.2.7": ">=4.2.7",
+      "nanoid@<3.3.16": ">=3.3.16",
+      "nanoid@<3.3.17": ">=3.3.17"
+    }
   }
 }

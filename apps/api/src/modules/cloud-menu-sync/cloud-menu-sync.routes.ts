@@ -33,8 +33,7 @@ router.post('/publications', limiter, async (req, res, next) => {
       return apiError(res, 400, 'Invalid idempotency key');
     }
     const identity = await authenticateCloudMenuSync(
-      req.header('x-resto-license-key'),
-      req.header('x-resto-hardware-id'),
+      req.header('authorization'),
     );
     const result = await applyMenuPublication(identity, publication);
     return apiResponse({ res, data: result, message: 'Publication accepted' });

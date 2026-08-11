@@ -140,7 +140,7 @@ test('example contracts are explicit non-release placeholders', async () => {
   const contract = JSON.parse(await source('installer-contract.example.json'));
   assert.equal(manifest.schemaVersion, 1);
   assert.match(manifest.files[0].sha256, /^REPLACE_/);
-  assert.equal(manifest.files.length, 12);
+  assert.equal(manifest.files.length, 14);
   assert.equal(contract.schema_version, 1);
   assert.equal(contract.first_run_provisioning, true);
   assert.equal(contract.uninstall_preserves_customer_data, true);

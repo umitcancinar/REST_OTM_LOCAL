@@ -185,6 +185,10 @@ export const localEnv = {
     'PRINT_AGENT_SECRET',
     'dev-print-agent-secret-CHANGE-ME',
   ),
+  INTERNAL_RUNTIME_TOKEN: requireSecret(
+    'INTERNAL_RUNTIME_TOKEN',
+    'dev-internal-runtime-token-CHANGE-ME',
+  ),
   LOCAL_LICENSE_SERVER_URL,
   LOCAL_LICENSE_PUBLIC_KEY,
   LOCAL_LICENSE_DATA_DIR,

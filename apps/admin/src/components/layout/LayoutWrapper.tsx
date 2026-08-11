@@ -55,6 +55,10 @@ export default function LayoutWrapper({ children }: { children: React.ReactNode 
     }
 
     const user = JSON.parse(userData);
+    if (user.sessionType === 'local_setup' && pathname !== '/staff') {
+      router.replace('/staff');
+      return;
+    }
     const allowedRoutes = ROLE_PERMISSIONS[user.role] || [];
     setUserRole(user.role);
 

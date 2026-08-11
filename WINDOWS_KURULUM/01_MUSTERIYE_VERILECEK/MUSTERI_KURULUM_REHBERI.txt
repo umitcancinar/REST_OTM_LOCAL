@@ -1,0 +1,69 @@
+REST_OTM WINDOWS KURULUMU - COK BASIT ANLATIM
+=============================================
+
+SIZE VERILMESI GEREKENLER
+-------------------------
+1. RESTOTM-Setup-X.Y.Z-x64.exe
+2. Ayni isimle biten .sha256 dosyasi
+3. Size ozel RSTO-XXXX-XXXX-XXXX lisans anahtari
+
+Bu ucunden biri eksikse kuruluma baslamayin ve REST_OTM yetkilisini arayin.
+
+KURMADAN ONCE
+-------------
+1. REST_OTM'nin kurulacagi ana bilgisayari secin.
+2. Bu bilgisayarin interneti acik olsun.
+3. Windows tarih ve saati otomatik olsun.
+4. Windows Ag ayarinda ag turu "Ozel / Private" olsun.
+5. Eski REST_OTM kurulumu varsa once yetkiliyi arayin. Klasor silmeyin.
+
+KURULUM
+-------
+1. RESTOTM-Setup-X.Y.Z-x64.exe dosyasina SAG TIKLAYIN.
+2. "Yonetici olarak calistir" secenegine basin.
+3. Windows size izin sorarsa "Evet" basin.
+4. Yayinci adini kontrol edin. "Bilinmeyen yayinci" yaziyorsa IPTAL edin.
+5. Kurulum ekraninda "Kur" tusuna basin.
+6. "Tamamlandi" yazana kadar pencereyi kapatmayin.
+7. Bilgisayari YENIDEN BASLATIN.
+
+ILK ACILIS VE LISANS
+--------------------
+1. Ana bilgisayarda Edge veya Chrome'u acin.
+2. Adres cubuguna sunu yazin: http://127.0.0.1:8787
+3. Lisans ekrani acilir.
+4. Size verilen RSTO-XXXX-XXXX-XXXX anahtarini girin.
+5. "Bu bilgisayari etkinlestir" tusuna basin.
+6. Sistem sizi otomatik olarak Personeller ekranina goturur.
+7. Ilk once rolu "Yonetici" veya "Sahip" olan gercek hesabi olusturun.
+8. Sifre en az 12 karakter olmali; buyuk-kucuk harf, rakam ve ozel karakter icermeli.
+9. Gecici kurulum oturumu kapanir. Yeni yonetici bilgileriyle giris yapin.
+10. Garson, kasiyer ve sef hesaplarini Personeller ekranindan ekleyin.
+
+ONEMLI
+------
+- Lisans ayni anda baska bilgisayarda kullanilamaz.
+- Personel sifreleri buluta gitmez; bcrypt hash olarak yerel veritabaninda tutulur.
+- Siparis, musteri, stok ve personel verileri bu bilgisayarda kalir.
+- Program Files\RESTOTM ve ProgramData\RESTOTM klasorlerine elle dokunmayin.
+- Windows Guvenlik Duvari'ni kapatmayin.
+- Interneti surekli kapali tutmayin; lisans saatte bir kontrol edilir.
+- Kurulum dosyasini e-posta veya mesajlasma grubunda herkese dagitmayin.
+
+DIGER TELEFON/TABLETLER
+-----------------------
+1. Cihaz ana bilgisayarla AYNI Wi-Fi aginda olsun.
+2. Ag turu ana bilgisayarda "Ozel / Private" olmali.
+3. Kurulum yapan yetkilinin verdigi http://restotm-XXXXXXXX.local:8787 adresini acin.
+   Gerekirse ayni adres ana bilgisayarin router tarafindan atanmis yerel IP'siyle
+   de kullanilir: ornek http://192.168.1.50:8787
+4. Garson paneli icin adrese /garson ekleyin ve Personeller ekraninda atanmis
+   garson e-posta/sifresi veya PIN'i ile girin.
+5. Adres acilmazsa rastgele firewall ayari degistirmeyin; yetkiliyi arayin.
+
+SORUN OLURSA YETKILIYE SOYLEYECEGINIZ 4 SEY
+-------------------------------------------
+1. Ekranda yazan hata mesaji.
+2. Hatanin oldugu saat.
+3. Bilgisayarin yeniden baslatilip baslatilmadigi.
+4. Internetin ve ayni Wi-Fi'nin calisip calismadigi.

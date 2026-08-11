@@ -91,6 +91,8 @@ async function createFixture() {
     bootstrap: CANONICAL_ROLE_PATHS['installer-bootstrap'],
     postgres: CANONICAL_ROLE_PATHS['postgres-server'],
     pgDump: CANONICAL_ROLE_PATHS['postgres-client'],
+    pgRestore: CANONICAL_ROLE_PATHS['postgres-restore'],
+    nodeRuntime: CANONICAL_ROLE_PATHS['node-runtime'],
     apiLauncher: CANONICAL_ROLE_PATHS['local-api'],
     adminLauncher: CANONICAL_ROLE_PATHS['admin-ui'],
     waiterLauncher: CANONICAL_ROLE_PATHS['waiter-ui'],
@@ -100,6 +102,11 @@ async function createFixture() {
   })) {
     executableSources[property] = await put(peRoot, relativePath, fakePe);
   }
+  executableSources.postgresRuntime = path.join(peRoot, 'postgres');
+  await put(executableSources.postgresRuntime, 'bin/initdb.exe', fakePe);
+  await put(executableSources.postgresRuntime, 'bin/pg_ctl.exe', fakePe);
+  await put(executableSources.postgresRuntime, 'bin/libpq.dll', fakePe);
+  await put(executableSources.postgresRuntime, 'share/postgresql.conf.sample', '# fixture\n');
 
   return {
     root,

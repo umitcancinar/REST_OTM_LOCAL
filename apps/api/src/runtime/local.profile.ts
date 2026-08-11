@@ -1,5 +1,6 @@
 import { Application } from 'express';
 import { Server as HttpServer } from 'http';
+import { readStoredMenuSyncToken } from '@rest-otm/license';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import { rbac } from '../middlewares/rbac.middleware';
 import authRoutes from '../modules/auth/auth.routes';
@@ -108,11 +109,10 @@ export function registerLocalProfile(
         endpoint: `${localEnv.LOCAL_LICENSE_SERVER_URL}/api/cloud-sync/v1/publications`,
         allowLoopbackHttp: localEnv.isDev,
         credentials: () => {
-          const status = localLicenseRuntime.assertOperationalLicense('job');
-          return {
-            licenseKey: status.license.licenseKey,
-            hardwareId: status.license.hardwareId,
-          };
+          localLicenseRuntime.assertOperationalLicense('job');
+          const syncToken = readStoredMenuSyncToken(localEnv.LOCAL_LICENSE_DATA_DIR);
+          if (!syncToken) throw new Error('Kisa omurlu menu sync token henuz alinmadi.');
+          return { syncToken };
         },
       })
     : undefined;
@@ -165,6 +165,9 @@ export function registerLocalProfile(
   const socketServer = initializeSocketServer(httpServer, {
     assertOperationalLicense: localLicenseRuntime
       ? () => localLicenseRuntime.assertOperationalLicense('websocket')
+      : undefined,
+    getLicensedTenantId: localLicenseRuntime
+      ? () => localLicenseRuntime.assertOperationalLicense('websocket').license.tenantId
       : undefined,
   });
   const printOutboxRuntime = new PrintOutboxRuntime({

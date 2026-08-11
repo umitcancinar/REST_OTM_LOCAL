@@ -26,7 +26,7 @@ export const validators = {
     .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
     .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
     .regex(/[0-9]/, 'Password must contain at least one number'),
-  pin: z.string().length(4, 'PIN must be exactly 4 digits').regex(/^\d+$/, 'PIN must be numeric'),
+  pin: z.string().min(4, 'PIN must be at least 4 digits').max(8, 'PIN must be at most 8 digits').regex(/^\d+$/, 'PIN must be numeric'),
   phone: z.string().regex(/^[\d\s\-+()]+$/, 'Invalid phone number').optional(),
   slug: z
     .string()

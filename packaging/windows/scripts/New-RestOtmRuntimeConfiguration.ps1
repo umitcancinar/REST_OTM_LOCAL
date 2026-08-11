@@ -241,6 +241,7 @@ if ($PSCmdlet.ShouldProcess($programData, 'Canonical RESTOTM runtime config, sec
                     JWT_ACCESS_SECRET = 'jwtAccessSecret'
                     JWT_REFRESH_SECRET = 'jwtRefreshSecret'
                     PRINT_AGENT_SECRET = 'printAgentSecret'
+                    INTERNAL_RUNTIME_TOKEN = 'internalApiToken'
                     LOCAL_BACKUP_KEY_BASE64 = 'backupEncryptionKey'
                     TABLE_QR_SIGNING_SECRET = 'tableQrSigningSecret'
                 }

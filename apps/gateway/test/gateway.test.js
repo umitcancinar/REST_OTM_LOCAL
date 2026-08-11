@@ -105,7 +105,7 @@ test('gateway HTTP isteklerini sabit loopback upstreamlere yollar ve spoofed for
   const upstreams = {};
   for (const name of ['api', 'admin', 'waiter', 'menu']) {
     const server = http.createServer((req, res) => {
-      seen.push({ name, url: req.url, forwardedFor: req.headers['x-forwarded-for'], injected: req.headers['x-forwarded-host'] });
+      seen.push({ name, url: req.url, forwardedFor: req.headers['x-forwarded-for'], injected: req.headers['x-forwarded-host'], origin: req.headers.origin });
       res.end(name);
     });
     upstreams[name] = { server, port: await listen(server) };
@@ -122,12 +122,15 @@ test('gateway HTTP isteklerini sabit loopback upstreamlere yollar ve spoofed for
   const gatewayPort = await listen(gateway);
   t.after(() => close(gateway));
 
-  assert.equal((await request(gatewayPort, '/api/orders?x=1', { headers: { 'x-forwarded-for': 'evil' } })).body, 'api');
+  assert.equal((await request(gatewayPort, '/api/orders?x=1', {
+    headers: { 'x-forwarded-for': 'evil', origin: `http://127.0.0.1:${gatewayPort}` },
+  })).body, 'api');
   assert.equal((await request(gatewayPort, '/garson/tables')).body, 'waiter');
   assert.equal((await request(gatewayPort, '/menu/lezzet-restoran?tableId=t1')).body, 'menu');
   assert.equal((await request(gatewayPort, '/overview')).body, 'admin');
   assert.equal(seen[0].forwardedFor, '127.0.0.1');
   assert.equal(seen[0].injected, `127.0.0.1:${gatewayPort}`);
+  assert.equal(seen[0].origin, undefined);
 });
 
 test('gateway bilinmeyen Host, cross-origin mutation ve buyuk istegi reddeder', async (t) => {

@@ -25,6 +25,7 @@ import {
   licenseKeyHashCandidates,
   normalizeLicenseKey,
 } from './license-key.policy';
+import { issueMenuSyncToken } from '../cloud-menu-sync/cloud-menu-sync-token';
 
 /** Yoklama araligi: lokal taraf bu siklikta baglanir. */
 export const HEARTBEAT_INTERVAL_HOURS = 1;
@@ -148,6 +149,24 @@ function sign(license: {
   );
 }
 
+function menuSyncToken(license: {
+  id: string;
+  tenantId: string;
+  hardwareId: string;
+  status: 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'REVOKED';
+  tenant: { isActive: boolean };
+}): string | null {
+  if (license.status !== 'ACTIVE' || !license.tenant.isActive) return null;
+  if (!cloudEnv.LICENSE_PRIVATE_KEY) {
+    throw Object.assign(new Error('Lisans sunucusu yapılandırılmamış.'), { statusCode: 503 });
+  }
+  return issueMenuSyncToken({
+    licenseId: license.id,
+    tenantId: license.tenantId,
+    hardwareId: license.hardwareId,
+  }, cloudEnv.LICENSE_PRIVATE_KEY);
+}
+
 export const licenseService = {
   /**
    * Aktivasyon — musterinin bilgisayarina ILK kurulumda cagrilir.
@@ -251,6 +270,7 @@ export const licenseService = {
         { ...updated, hardwareId: input.hardwareId, tenantActive: updated.tenant.isActive },
         normalizedKey,
       ),
+      syncToken: menuSyncToken({ ...updated, hardwareId: input.hardwareId }),
       serverTime: new Date().toISOString(),
       heartbeatIntervalHours: HEARTBEAT_INTERVAL_HOURS,
     };
@@ -320,6 +340,7 @@ export const licenseService = {
         hardwareId: input.hardwareId,
         tenantActive: updated.tenant.isActive,
       }, normalizedKey),
+      syncToken: menuSyncToken({ ...updated, hardwareId: input.hardwareId }),
       serverTime: new Date().toISOString(),
       heartbeatIntervalHours: HEARTBEAT_INTERVAL_HOURS,
     };

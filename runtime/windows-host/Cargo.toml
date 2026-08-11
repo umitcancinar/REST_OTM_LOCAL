@@ -21,6 +21,10 @@ path = "src/bin/runtime_service.rs"
 name = "restotm-installer-bootstrap"
 path = "src/bin/installer_bootstrap.rs"
 
+[[bin]]
+name = "restotm-child-launcher"
+path = "src/bin/child_launcher.rs"
+
 [dependencies]
 base64 = "0.22"
 ctrlc = "3.4"

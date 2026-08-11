@@ -10,6 +10,11 @@ const assert = require('node:assert/strict');
 
 const { generateKeyPair, issueLicense, generateLicenseKey } = require('../dist/sign');
 const { verifyLicense, advanceState } = require('../dist/verify');
+const { activate, readStoredMenuSyncToken } = require('../dist/client');
+const { mkdtempSync, rmSync } = require('node:fs');
+const { tmpdir } = require('node:os');
+const { join } = require('node:path');
+const { createServer } = require('node:http');
 
 const { publicKeyPem, privateKeyPem } = generateKeyPair();
 const HW = 'a'.repeat(64);
@@ -199,4 +204,47 @@ test('lisans anahtari karistirilabilir karakter icermez', () => {
     assert.match(key, /^RSTO-[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/);
     assert.ok(!/[01ILO]/.test(key.slice(5)), `karistirilabilir karakter: ${key}`);
   }
+});
+
+test('aktivasyon kisa omurlu menu sync tokenini izinli yerel kayda yazar', async (t) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'restotm-license-client-'));
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  const syncToken = `${'a'.repeat(120)}.${'b'.repeat(86)}`;
+  const server = createServer((req, res) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      const request = JSON.parse(body);
+      const signed = issueLicense({
+        licenseKey: request.licenseKey,
+        tenantId: 'tenant-1',
+        restaurantName: 'Test Restoran',
+        hardwareId: request.hardwareId,
+        expiresAt: daysFromNow(30),
+      }, privateKeyPem);
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({
+        success: true,
+        data: {
+          license: signed,
+          syncToken,
+          serverTime: new Date().toISOString(),
+          heartbeatIntervalHours: 1,
+        },
+      }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+  const address = server.address();
+  assert.equal(typeof address, 'object');
+  const result = await activate({
+    dataDir,
+    serverUrl: `http://127.0.0.1:${address.port}`,
+    publicKeyPem,
+    appVersion: 'test',
+  }, 'RSTO-TEST-TEST-TEST');
+  assert.equal(result.ok, true);
+  assert.equal(readStoredMenuSyncToken(dataDir), syncToken);
 });

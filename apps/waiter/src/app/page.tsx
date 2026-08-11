@@ -1,8 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Mail, Lock, LogIn, Loader2, Sparkles, ChefHat } from 'lucide-react';
+import { Mail, Lock, LogIn, Loader2, Sparkles } from 'lucide-react';
+
+const SAME_WIFI_MESSAGE = 'Ana REST_OTM bilgisayarına ulaşılamadı. Telefonu ana bilgisayarla aynı Wi-Fi ağına bağlayın ve ana bilgisayarın açık olduğunu kontrol edin.';
 
 export default function WaiterLoginPage() {
   const router = useRouter();
@@ -10,6 +12,30 @@ export default function WaiterLoginPage() {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [localServerReachable, setLocalServerReachable] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 6_000);
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || '/api'}/health`, {
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    })
+      .then((response) => setLocalServerReachable(response.ok))
+      .catch(() => setLocalServerReachable(false))
+      .finally(() => window.clearTimeout(timer));
+    const offline = () => {
+      setLocalServerReachable(false);
+      setError(SAME_WIFI_MESSAGE);
+    };
+    window.addEventListener('offline', offline);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+      window.removeEventListener('offline', offline);
+    };
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -17,16 +43,29 @@ export default function WaiterLoginPage() {
     setError('');
 
     try {
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), 8_000);
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || '/api'}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
+        signal: controller.signal,
       });
+      window.clearTimeout(timer);
 
       const data = await res.json();
 
+      if (res.status === 423) {
+        setError('Ana bilgisayarın lisansı şu anda işlem yapmaya izin vermiyor. Restoran yöneticisine haber verin.');
+        return;
+      }
       if (!res.ok) {
         setError(data.message || 'Giriş başarısız');
+        return;
+      }
+
+      if (data.data.user.role !== 'WAITER') {
+        setError('Bu ekran yalnız Garson rolündeki personel içindir. Yönetici panelini kullanın.');
         return;
       }
 
@@ -36,7 +75,8 @@ export default function WaiterLoginPage() {
 
       router.push('/tables');
     } catch {
-      setError('Sunucu bağlantı hatası');
+      setLocalServerReachable(false);
+      setError(SAME_WIFI_MESSAGE);
     } finally {
       setIsLoading(false);
     }
@@ -82,6 +122,14 @@ export default function WaiterLoginPage() {
           <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
             Hızlı sipariş yönetimi
           </p>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 7, marginTop: 12,
+            color: localServerReachable === false ? 'var(--danger)' : 'var(--success)',
+            fontSize: '0.75rem', fontWeight: 700,
+          }}>
+            <span style={{ width: 8, height: 8, borderRadius: 99, background: 'currentColor' }} />
+            {localServerReachable === false ? 'Yerel sunucuya ulaşılamıyor' : 'Yerel restoran ağı'}
+          </div>
         </div>
 
         <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -105,7 +153,7 @@ export default function WaiterLoginPage() {
 
           <div>
             <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
-              Şifre
+              Şifre veya PIN
             </label>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <Lock size={18} strokeWidth={2} style={{ position: 'absolute', left: '14px', color: 'var(--text-muted)' }} />

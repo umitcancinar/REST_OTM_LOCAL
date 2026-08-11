@@ -27,6 +27,8 @@ export const CANONICAL_ROLE_PATHS = Object.freeze({
   'installer-bootstrap': 'bin/restotm-installer-bootstrap.exe',
   'postgres-server': 'postgres/bin/postgres.exe',
   'postgres-client': 'postgres/bin/pg_dump.exe',
+  'postgres-restore': 'postgres/bin/pg_restore.exe',
+  'node-runtime': 'runtime/node.exe',
   'local-api': 'api/restotm-api.exe',
   'admin-ui': 'admin/restotm-admin.exe',
   'waiter-ui': 'waiter/restotm-waiter.exe',
@@ -59,7 +61,8 @@ function usage() {
     '  [--gateway-dist <dir>] [--print-agent-dist <dir>] [--receipt-dist <dir>]',
     '  [--receipt-package <file>] [--installer-contract <file>]',
     '  [--license-public-key <file>] [--update-public-key <file>]',
-    '  [--runtime-service <file>] [--bootstrap <file>] [--postgres <file>] [--pg-dump <file>]',
+    '  [--runtime-service <file>] [--bootstrap <file>] [--postgres-runtime <dir>] [--postgres <file>] [--pg-dump <file>] [--pg-restore <file>]',
+    '  [--node-runtime <file>]',
     '  [--api-launcher <file>] [--admin-launcher <file>] [--waiter-launcher <file>] [--menu-launcher <file>]',
     '  [--print-launcher <file>] [--gateway-launcher <file>]',
   ].join('\n');
@@ -83,7 +86,10 @@ function defaultOptions() {
     runtimeService: path.join(windowsInput, 'bin/restotm-runtime-service.exe'),
     bootstrap: path.join(windowsInput, 'bin/restotm-installer-bootstrap.exe'),
     postgres: path.join(windowsInput, 'postgres/bin/postgres.exe'),
+    postgresRuntime: path.join(windowsInput, 'postgres'),
     pgDump: path.join(windowsInput, 'postgres/bin/pg_dump.exe'),
+    pgRestore: path.join(windowsInput, 'postgres/bin/pg_restore.exe'),
+    nodeRuntime: path.join(windowsInput, 'runtime/node.exe'),
     apiLauncher: path.join(windowsInput, 'api/restotm-api.exe'),
     adminLauncher: path.join(windowsInput, 'admin/restotm-admin.exe'),
     waiterLauncher: path.join(windowsInput, 'waiter/restotm-waiter.exe'),
@@ -111,7 +117,10 @@ const VALUE_FLAGS = Object.freeze({
   '--runtime-service': 'runtimeService',
   '--bootstrap': 'bootstrap',
   '--postgres': 'postgres',
+  '--postgres-runtime': 'postgresRuntime',
   '--pg-dump': 'pgDump',
+  '--pg-restore': 'pgRestore',
+  '--node-runtime': 'nodeRuntime',
   '--api-launcher': 'apiLauncher',
   '--admin-launcher': 'adminLauncher',
   '--waiter-launcher': 'waiterLauncher',
@@ -326,6 +335,30 @@ async function validateLocalMenuBuild(menuApp) {
   }
 }
 
+async function validatePostgresRuntime(input) {
+  for (const [property, relativePath] of [
+    ['postgres', 'bin/postgres.exe'],
+    ['pgDump', 'bin/pg_dump.exe'],
+    ['pgRestore', 'bin/pg_restore.exe'],
+  ]) {
+    const expected = await realpath(path.join(input.postgresRuntime, ...relativePath.split('/')))
+      .catch(() => null);
+    if (!expected || expected !== input[property]) {
+      throw new Error(`PostgreSQL canonical binary tam dagitim kokunden gelmeli: ${relativePath}`);
+    }
+  }
+  for (const relativePath of [
+    'bin/initdb.exe',
+    'bin/pg_ctl.exe',
+    'bin/libpq.dll',
+    'share/postgresql.conf.sample',
+  ]) {
+    await access(path.join(input.postgresRuntime, ...relativePath.split('/'))).catch(() => {
+      throw new Error(`PostgreSQL tam runtime girdisi eksik: ${relativePath}`);
+    });
+  }
+}
+
 export async function assembleWindowsPayload(options, dependencies = {}) {
   const mode = options.mode ?? 'production';
   if (!['production', 'fixture'].includes(mode)) throw new Error(`Gecersiz staging modu: ${mode}`);
@@ -352,7 +385,10 @@ export async function assembleWindowsPayload(options, dependencies = {}) {
     runtimeService: 'file',
     bootstrap: 'file',
     postgres: 'file',
+    postgresRuntime: 'directory',
     pgDump: 'file',
+    pgRestore: 'file',
+    nodeRuntime: 'file',
     apiLauncher: 'file',
     adminLauncher: 'file',
     waiterLauncher: 'file',
@@ -367,6 +403,7 @@ export async function assembleWindowsPayload(options, dependencies = {}) {
   validateInstallerContract(contract, mode);
   await validateApiClosure(input.apiClosure, mode);
   await validateLocalMenuBuild(input.menuApp);
+  await validatePostgresRuntime(input);
 
   const signatureVerifier = dependencies.authenticodeVerifier ?? defaultAuthenticodeVerifier;
   const licensePublicKey = await assertSafeContent(
@@ -413,13 +450,15 @@ export async function assembleWindowsPayload(options, dependencies = {}) {
     records.push({ relativePath: normalized, role, bytes, authenticodeRequired: hasPeHeader });
   }
 
-  async function copyTree(sourceRoot, destinationRoot, role) {
+  async function copyTree(sourceRoot, destinationRoot, role, skipped = new Set()) {
     const canonicalSource = await assertRegularSource(sourceRoot, 'directory');
     async function visit(relativeDirectory = '') {
       const current = path.join(canonicalSource, relativeDirectory);
       const entries = await readdir(current, { withFileTypes: true });
       for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name, 'en'))) {
         const relative = path.join(relativeDirectory, entry.name);
+        const normalizedRelative = relative.split(path.sep).join('/');
+        if (skipped.has(normalizedRelative)) continue;
         const source = path.join(canonicalSource, relative);
         const state = await lstat(source);
         if (state.isSymbolicLink()) throw new Error(`Symlink payload closure icinde reddedildi: ${source}`);
@@ -441,6 +480,13 @@ export async function assembleWindowsPayload(options, dependencies = {}) {
     await copyOne(input.bootstrap, CANONICAL_ROLE_PATHS['installer-bootstrap'], 'installer-bootstrap');
     await copyOne(input.postgres, CANONICAL_ROLE_PATHS['postgres-server'], 'postgres-server');
     await copyOne(input.pgDump, CANONICAL_ROLE_PATHS['postgres-client'], 'postgres-client');
+    await copyOne(input.pgRestore, CANONICAL_ROLE_PATHS['postgres-restore'], 'postgres-restore');
+    await copyOne(input.nodeRuntime, CANONICAL_ROLE_PATHS['node-runtime'], 'node-runtime');
+    await copyTree(input.postgresRuntime, 'postgres', 'postgres-runtime', new Set([
+      'bin/postgres.exe',
+      'bin/pg_dump.exe',
+      'bin/pg_restore.exe',
+    ]));
     await copyOne(input.apiLauncher, CANONICAL_ROLE_PATHS['local-api'], 'local-api');
     await copyOne(input.adminLauncher, CANONICAL_ROLE_PATHS['admin-ui'], 'admin-ui');
     await copyOne(input.waiterLauncher, CANONICAL_ROLE_PATHS['waiter-ui'], 'waiter-ui');

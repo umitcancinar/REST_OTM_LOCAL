@@ -26,7 +26,9 @@ function readDataDir(): string {
 export const config = {
   wsUrl: process.env.PRINT_AGENT_WS_URL || 'http://localhost:4000',
   secret: process.env.PRINT_AGENT_SECRET || 'print-agent-secret',
-  tenantId: process.env.PRINT_AGENT_TENANT_ID || 'default-tenant-id', // MUST be set in production
+  // Lokal Windows kurulumunda tenant imzali lisanstan sunucu tarafinda
+  // turetilir. Bu alan yalniz eski/cloud gelistirme profili icin opsiyoneldir.
+  tenantId: process.env.PRINT_AGENT_TENANT_ID || '',
   reconnectInterval: 5000,
   dataDir: readDataDir(),
 

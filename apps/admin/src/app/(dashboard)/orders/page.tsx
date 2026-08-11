@@ -18,7 +18,7 @@ import {
   Landmark,
   Loader2,
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import { downloadCsv } from '@/lib/csv';
 import styles from './page.module.css';
 import { api } from '@/lib/api';
 import { useToast } from '@/components/ui/Toast';
@@ -191,7 +191,7 @@ export default function OrdersPage() {
     void persistOrderStatus(order.id, newStatus);
   };
 
-  const handleExportExcel = () => {
+  const handleExportCsv = () => {
      if (filtered.length === 0) return toast.warning('Dışa aktarılacak sipariş yok.');
      
      const exportData = filtered.map(o => ({
@@ -203,21 +203,7 @@ export default function OrdersPage() {
        'Tarih': new Date(o.createdAt).toLocaleString('tr-TR')
      }));
 
-     const ws = XLSX.utils.json_to_sheet(exportData);
-
-     // Set column widths to prevent text from being cut off
-     ws['!cols'] = [
-       { wch: 15 }, // Sipariş No
-       { wch: 15 }, // Tür
-       { wch: 25 }, // Masa / Müşteri
-       { wch: 25 }, // Durum
-       { wch: 12 }, // Tutar
-       { wch: 20 }, // Tarih
-     ];
-
-     const wb = XLSX.utils.book_new();
-     XLSX.utils.book_append_sheet(wb, ws, "Siparisler");
-     XLSX.writeFile(wb, `Siparisler_${timeFilter}_${new Date().toISOString().split('T')[0]}.xlsx`);
+     downloadCsv(exportData, `Siparisler_${timeFilter}_${new Date().toISOString().split('T')[0]}.csv`);
   };
 
   const filtered = orders.filter(o => {
@@ -304,7 +290,7 @@ export default function OrdersPage() {
              />
           </div>
           <div className={styles.actionButtons}>
-            <button className="btn btn-ghost" onClick={handleExportExcel} title="Excel İndir">
+            <button className="btn btn-ghost" onClick={handleExportCsv} title="CSV İndir">
                <Download size={16} /> <span className={styles.btnText}>Dışa Aktar</span>
             </button>
             <button className="btn btn-ghost" onClick={loadOrders} disabled={isRefreshing} title="Yenile">

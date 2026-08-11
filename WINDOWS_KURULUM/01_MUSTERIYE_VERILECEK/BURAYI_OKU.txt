@@ -1,0 +1,14 @@
+BU KLASORDE SU ANDA BILEREK KURULUM EXE'SI YOKTUR.
+
+NEDEN?
+Test edilmemis veya imzasiz bir dosyayi musteriye vermek guvenli degildir.
+
+Gercek RESTOTM-Setup-X.Y.Z-x64.exe dosyasi su iki islemden sonra buraya
+OTOMATIK kopyalanir:
+
+1) 02_WINDOWS_DERLEME\ADAYI-DERLE.ps1 gercek Windows bilgisayarda calisir.
+2) Aday temiz Windows sanal makineye kurulur, bilgisayar yeniden baslatilir ve
+   03_WINDOWS_KABUL\KONTROL-ET-VE-MUSTERIYE-KOPYALA.ps1 basariyla tamamlanir.
+
+Musteriye yalniz bu klasorun son hali verilir. build, kaynak kod, private key,
+lisans private key'i, .env veya veritabani dosyasi ASLA verilmez.

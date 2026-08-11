@@ -17,6 +17,7 @@ use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::os::windows::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
 use std::ptr::{null, null_mut};
+use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 use windows_sys::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER;
 use windows_sys::Win32::Security::Cryptography::{
@@ -113,7 +114,7 @@ impl Drop for Rollback {
             let _ = fs::remove_file(file);
         }
         for directory in self.directories.iter().rev() {
-            let _ = fs::remove_dir(directory);
+            let _ = fs::remove_dir_all(directory);
         }
     }
 }
@@ -182,7 +183,13 @@ fn provision(request: &BootstrapRequest) -> Result<()> {
     harden_tree(&request.program_data_root)?;
 
     let installation_id = new_installation_id()?;
-    let secret_bytes = create_secret_store(&installation_id)?;
+    let (secret_bytes, database_password) = create_secret_store(&installation_id)?;
+    initialize_postgres_cluster(
+        request,
+        &data_root.join("postgres"),
+        &config_root,
+        &database_password,
+    )?;
     atomic_write_new(&secret_path, &secret_bytes)?;
     rollback.files.push(secret_path.clone());
     apply_restrictive_acl(&secret_path, false)?;
@@ -241,6 +248,11 @@ fn verify_required_payload(request: &BootstrapRequest) -> Result<()> {
         "postgres/bin/postgres.exe",
         "postgres/bin/pg_dump.exe",
         "postgres/bin/pg_restore.exe",
+        "postgres/bin/initdb.exe",
+        "postgres/bin/pg_ctl.exe",
+        "postgres/bin/libpq.dll",
+        "postgres/share/postgresql.conf.sample",
+        "runtime/node.exe",
         "api/restotm-api.exe",
         "admin/restotm-admin.exe",
         "waiter/restotm-waiter.exe",
@@ -661,10 +673,10 @@ fn protect_secret(clear: &str) -> Result<String> {
     Ok(format!("dpapi-local-machine-v1:{}", STANDARD.encode(encrypted)))
 }
 
-fn create_secret_store(installation_id: &str) -> Result<Vec<u8>> {
+fn create_secret_store(installation_id: &str) -> Result<(Vec<u8>, Zeroizing<String>)> {
     let database_password = random_secret(48)?;
     let database_url = Zeroizing::new(format!(
-        "postgresql://restotm_runtime:{}@127.0.0.1:55432/restotm_local?schema=public",
+        "postgresql://restotm_runtime:{}@127.0.0.1:55432/postgres?schema=public",
         database_password.as_str()
     ));
     let mut backup_key = Zeroizing::new(random_bytes(32)?);
@@ -686,12 +698,65 @@ fn create_secret_store(installation_id: &str) -> Result<Vec<u8>> {
     {
         return Err(HostError::InvalidBootstrap("canonical secret map is incomplete".into()));
     }
-    serde_json::to_vec_pretty(&SecretStoreDocument {
+    let document = serde_json::to_vec_pretty(&SecretStoreDocument {
         schema_version: 1,
         protection: "dpapi-local-machine-v1",
         values,
     })
-    .map_err(|error| HostError::json("serialize native secret store", error))
+    .map_err(|error| HostError::json("serialize native secret store", error))?;
+    Ok((document, database_password))
+}
+
+fn initialize_postgres_cluster(
+    request: &BootstrapRequest,
+    data_directory: &Path,
+    config_root: &Path,
+    password: &str,
+) -> Result<()> {
+    let initdb = request.install_root.join("postgres/bin/initdb.exe");
+    assert_no_reparse_components(&initdb)?;
+    assert_no_reparse(data_directory)?;
+    let password_file = config_root.join(format!(
+        ".postgres-password-{}.tmp",
+        new_installation_id()?.replace('-', "")
+    ));
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&password_file)
+            .map_err(|error| HostError::io(password_file.display().to_string(), error))?;
+        file.write_all(password.as_bytes())
+            .and_then(|_| file.write_all(b"\r\n"))
+            .and_then(|_| file.sync_all())
+            .map_err(|error| HostError::io(password_file.display().to_string(), error))?;
+        drop(file);
+        apply_restrictive_acl(&password_file, false)?;
+
+        let status = Command::new(&initdb)
+            .args(["--no-instructions", "--encoding=UTF8", "--locale=C"])
+            .arg("--username=restotm_runtime")
+            .arg("--auth-host=scram-sha-256")
+            .arg("--auth-local=scram-sha-256")
+            .arg("--pwfile")
+            .arg(&password_file)
+            .arg("--pgdata")
+            .arg(data_directory)
+            .current_dir(request.install_root.join("postgres/bin"))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map_err(|error| HostError::io("start initdb", error))?;
+        if !status.success() {
+            return Err(HostError::InvalidBootstrap(format!(
+                "PostgreSQL cluster initialization failed: {status}"
+            )));
+        }
+        Ok(())
+    })();
+    let _ = fs::remove_file(&password_file);
+    result
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -790,6 +855,7 @@ fn build_config(
                 secret_environment: BTreeMap::from([
                     ("DATABASE_URL".into(), "databaseUrl".into()), ("JWT_ACCESS_SECRET".into(), "jwtAccessSecret".into()),
                     ("JWT_REFRESH_SECRET".into(), "jwtRefreshSecret".into()), ("PRINT_AGENT_SECRET".into(), "printAgentSecret".into()),
+                    ("INTERNAL_RUNTIME_TOKEN".into(), "internalApiToken".into()),
                     ("LOCAL_BACKUP_KEY_BASE64".into(), "backupEncryptionKey".into()),
                     ("TABLE_QR_SIGNING_SECRET".into(), "tableQrSigningSecret".into()),
                 ]),

@@ -12,6 +12,7 @@ import {
   X,
   Globe,
   ChefHat,
+  KeyRound,
 } from 'lucide-react';
 import styles from './Sidebar.module.css';
 import { useLayout } from '@/context/LayoutContext';
@@ -20,6 +21,7 @@ import { useState, useEffect } from 'react';
 const MENU_ITEMS = [
   { href: '/admin', label: 'Genel Bakış', icon: LayoutDashboard, roles: ['SUPER_ADMIN'] },
   { href: '/tenants', label: 'Restoranlar (Müşteriler)', icon: Building2, roles: ['SUPER_ADMIN'] },
+  { href: '/licenses', label: 'Lisans Yönetimi', icon: KeyRound, roles: ['SUPER_ADMIN'] },
   { href: '/settings', label: 'Sistem Ayarları', icon: Settings, roles: ['SUPER_ADMIN'] },
 ] as const;
 

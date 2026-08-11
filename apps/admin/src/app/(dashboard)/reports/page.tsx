@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '@/lib/api';
 import { useNotifications } from '@/context/NotificationContext';
-import * as XLSX from 'xlsx';
+import { downloadCsv } from '@/lib/csv';
 import {
   TrendingUp, ShoppingBag, Receipt, Users, Download,
   Calendar, RefreshCcw, Award, CreditCard, Banknote,
@@ -258,7 +258,7 @@ export default function ReportsPage() {
     }
   };
 
-  const exportExcel = () => {
+  const exportCsv = () => {
     if (!summary) return;
     const rows: any[] = [
       { 'Bilgi': 'Dönem', 'Değer': `${startDate} — ${endDate}` },
@@ -279,11 +279,7 @@ export default function ReportsPage() {
       rows.push({ 'Bilgi': w.name, 'Değer': `${w.orders} sipariş | ₺${fmt(w.revenue)}` });
     });
 
-    const ws = XLSX.utils.json_to_sheet(rows);
-    ws['!cols'] = [{ wch: 32 }, { wch: 28 }];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Rapor');
-    XLSX.writeFile(wb, `REST_OTM_Rapor_${startDate}_${endDate}.xlsx`);
+    downloadCsv(rows, `REST_OTM_Rapor_${startDate}_${endDate}.csv`);
   };
 
   const maxRevenue = summary?.topSellingItems?.[0]?.revenue || 1;
@@ -344,8 +340,8 @@ export default function ReportsPage() {
           <button onClick={printZReport} disabled={isPrintingZ} className="btn btn-ghost" style={{ gap:8, display:'flex', alignItems:'center' }} title="Z Raporu Yazdır">
             {isPrintingZ ? <Loader2 size={16} className="animate-spin" /> : <Printer size={16} />} Z Raporu
           </button>
-          <button onClick={exportExcel} className="btn btn-primary" style={{ gap:8, display:'flex', alignItems:'center' }}>
-            <Download size={16} /> Excel’e Aktar
+          <button onClick={exportCsv} className="btn btn-primary" style={{ gap:8, display:'flex', alignItems:'center' }}>
+            <Download size={16} /> CSV’ye Aktar
           </button>
         </div>
       </div>

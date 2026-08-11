@@ -14,8 +14,7 @@ const LEASE_MS = 30_000;
 type ClaimedProjection = MenuProjectionOutbox & { leaseToken: string };
 
 export interface MenuProjectionCredentials {
-  licenseKey: string;
-  hardwareId: string;
+  syncToken: string;
 }
 
 export interface MenuProjectionRuntimeOptions {
@@ -171,8 +170,7 @@ export class MenuProjectionRuntime {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'x-resto-license-key': credentials.licenseKey,
-          'x-resto-hardware-id': credentials.hardwareId,
+          authorization: `Bearer ${credentials.syncToken}`,
           'idempotency-key': `menu-v${job.version}-${job.checksum}`,
         },
         body,

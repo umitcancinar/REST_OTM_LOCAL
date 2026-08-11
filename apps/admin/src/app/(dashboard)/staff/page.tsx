@@ -43,10 +43,19 @@ type StaffMember = {
 type ModalMode = 'create' | 'edit';
 
 export default function StaffPage() {
+  const [isSetupSession, setIsSetupSession] = useState(false);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    setMounted(true);
+    try {
+      const user = JSON.parse(localStorage.getItem('user') || 'null');
+      setIsSetupSession(user?.sessionType === 'local_setup');
+    } catch {
+      setIsSetupSession(false);
+    }
+  }, []);
 
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>('create');
@@ -103,13 +112,31 @@ export default function StaffPage() {
     setFormError('');
     setFormLoading(true);
     try {
+      const passwordIsWeak = form.password.length > 0 && (
+        form.password.length < 12
+        || !/[a-z]/.test(form.password)
+        || !/[A-Z]/.test(form.password)
+        || !/[0-9]/.test(form.password)
+        || !/[^A-Za-z0-9]/.test(form.password)
+      );
       if (modalMode === 'create') {
-        if (!form.password || form.password.length < 6) {
-          setFormError('Şifre en az 6 karakter olmalıdır.');
+        if (!form.password || passwordIsWeak) {
+          setFormError('Şifre en az 12 karakter; büyük-küçük harf, rakam ve özel karakter içermelidir.');
           return;
         }
-        await api.post('/staff', { name: form.name, email: form.email, password: form.password, role: form.role, pin: form.pin || undefined });
+        const created = await api.post('/staff', { name: form.name, email: form.email, password: form.password, role: form.role, pin: form.pin || undefined });
+        if (isSetupSession && created?.setupCompleted) {
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
+          localStorage.removeItem('user');
+          window.location.replace('/?setup=complete');
+          return;
+        }
       } else if (editTarget) {
+        if (passwordIsWeak) {
+          setFormError('Yeni şifre en az 12 karakter; büyük-küçük harf, rakam ve özel karakter içermelidir.');
+          return;
+        }
         const payload: any = { name: form.name, email: form.email, role: form.role };
         if (form.password) payload.password = form.password;
         if (form.pin !== undefined) payload.pin = form.pin;
@@ -142,6 +169,15 @@ export default function StaffPage() {
 
   return (
     <div className="animate-fade-in" style={{ padding: '0 0 48px' }}>
+
+      {isSetupSession && (
+        <div className="card" style={{ marginBottom: 24, padding: 20, border: '1px solid #f59e0b', background: '#fffbeb' }}>
+          <strong style={{ display: 'block', color: '#92400e', marginBottom: 6 }}>İlk kurulum oturumu</strong>
+          <span style={{ color: '#78350f', fontSize: '0.875rem' }}>
+            Önce gerçek bir Yönetici veya Sahip hesabı oluşturun. Bu geçici oturum 15 dakika içinde veya yönetici oluşur oluşmaz kapanır. Garson hesaplarını yönetici hesabıyla giriş yaptıktan sonra da ekleyebilirsiniz.
+          </span>
+        </div>
+      )}
 
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32 }}>
@@ -359,7 +395,7 @@ export default function StaffPage() {
                     className="input"
                     style={{ paddingLeft: 40, paddingRight: 44 }}
                     type={showPassword ? 'text' : 'password'}
-                    placeholder={modalMode === 'create' ? 'En az 6 karakter' : '••••••••'}
+                    placeholder={modalMode === 'create' ? 'En az 12 karakter' : '••••••••'}
                     value={form.password}
                     onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
                     required={modalMode === 'create'}
@@ -377,18 +413,20 @@ export default function StaffPage() {
               {/* PIN */}
               <div>
                 <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8 }}>
-                  PIN Kodu <span style={{ fontWeight: 400, opacity: 0.7 }}>(opsiyonel, 4–6 haneli)</span>
+                  PIN Kodu <span style={{ fontWeight: 400, opacity: 0.7 }}>(opsiyonel, 4–8 haneli)</span>
                 </label>
                 <div style={{ position: 'relative' }}>
                   <Key size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                   <input
                     className="input"
                     style={{ paddingLeft: 40 }}
-                    type="number"
+                    type="password"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     placeholder="1234"
                     value={form.pin}
                     onChange={e => setForm(f => ({ ...f, pin: e.target.value }))}
-                    maxLength={6}
+                    maxLength={8}
                   />
                 </div>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginTop: 6 }}>

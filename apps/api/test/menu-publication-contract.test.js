@@ -18,6 +18,12 @@ const {
   CLOUD_MENU_SYNC_AUTH_LIMITATION,
   deriveMenuPublicId,
 } = require('../dist/modules/cloud-menu-sync/cloud-menu-sync.auth.js');
+const {
+  issueMenuSyncToken,
+  licensePublicKeyFromPrivate,
+  verifyMenuSyncToken,
+} = require('../dist/modules/cloud-menu-sync/cloud-menu-sync-token.js');
+const { generateKeyPairSync } = require('node:crypto');
 
 function fixture() {
   return {
@@ -126,12 +132,46 @@ test('local worker is outbound HTTPS-only with bounded jitter retry', () => {
   assert.equal(menuProjectionRetryDelay(20, () => 0), 900_000);
 });
 
-test('cloud public identity is secret-derived and raw credential replay limitation is explicit', () => {
+test('cloud public identity is secret-derived and remaining TPM limitation is explicit', () => {
   const first = deriveMenuPublicId('tenant-1', 'x'.repeat(32));
   const second = deriveMenuPublicId('tenant-1', 'y'.repeat(32));
   assert.match(first, /^[a-f0-9]{32}$/);
   assert.notEqual(first, second);
-  assert.match(CLOUD_MENU_SYNC_AUTH_LIMITATION, /TPM_CHALLENGE/);
+  assert.match(CLOUD_MENU_SYNC_AUTH_LIMITATION, /TPM_CNG_CHALLENGE/);
+});
+
+test('menu sync uses a short-lived Ed25519 grant bound to license, tenant and hardware', () => {
+  const pair = generateKeyPairSync('ed25519');
+  const privateKey = pair.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const publicKey = licensePublicKeyFromPrivate(privateKey);
+  const now = new Date('2026-08-11T12:00:00.000Z');
+  const token = issueMenuSyncToken({
+    licenseId: 'license-1',
+    tenantId: 'tenant-1',
+    hardwareId: 'a'.repeat(64),
+  }, privateKey, now);
+  const payload = verifyMenuSyncToken(token, publicKey, new Date(now.getTime() + 60_000));
+  assert.equal(payload.licenseId, 'license-1');
+  assert.equal(payload.tenantId, 'tenant-1');
+  assert.equal(payload.hardwareId, 'a'.repeat(64));
+  const [encoded, signature] = token.split('.');
+  const corruptedSignature = `${signature[0] === 'A' ? 'B' : 'A'}${signature.slice(1)}`;
+  assert.throws(() => verifyMenuSyncToken(`${encoded}.${corruptedSignature}`, publicKey, now), /invalid/);
+  assert.throws(() => verifyMenuSyncToken(token, publicKey, new Date(now.getTime() + 71 * 60_000)), /invalid/);
+});
+
+test('menu publication transport never sends the long-lived license key or hardware header', () => {
+  const runtime = fs.readFileSync(
+    path.resolve(__dirname, '../src/modules/menu-projection/menu-projection.runtime.ts'),
+    'utf8',
+  );
+  const route = fs.readFileSync(
+    path.resolve(__dirname, '../src/modules/cloud-menu-sync/cloud-menu-sync.routes.ts'),
+    'utf8',
+  );
+  assert.match(runtime, /authorization: `Bearer \$\{credentials\.syncToken\}`/);
+  assert.doesNotMatch(runtime, /x-resto-license-key|x-resto-hardware-id/);
+  assert.doesNotMatch(route, /x-resto-license-key|x-resto-hardware-id/);
 });
 
 test('schema and source enforce atomic outbox, monotonic cloud apply and projection-only reads', () => {

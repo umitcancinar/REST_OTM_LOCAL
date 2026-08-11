@@ -2,9 +2,9 @@ import { createHmac } from 'crypto';
 import prisma from '../../config/database';
 import { cloudEnv } from '../../config/env.cloud';
 import {
-  licenseKeyHashCandidates,
-  normalizeLicenseKey,
-} from '../license/license-key.policy';
+  licensePublicKeyFromPrivate,
+  verifyMenuSyncToken,
+} from './cloud-menu-sync-token';
 
 export interface CloudMenuSyncIdentity {
   tenantId: string;
@@ -17,7 +17,7 @@ export interface CloudMenuSyncIdentity {
 }
 
 export const CLOUD_MENU_SYNC_AUTH_LIMITATION =
-  'RAW_LICENSE_AND_HARDWARE_ID_ARE_REPLAYABLE_WITHOUT_TPM_CHALLENGE;_USE_SHORT_LIVED_SYNC_TOKEN_NEXT' as const;
+  'SHORT_LIVED_SIGNED_TOKEN_LIMITS_REPLAY;_TPM_CNG_CHALLENGE_REQUIRED_FOR_DEVICE_POSSESSION_PROOF' as const;
 
 export function deriveMenuPublicId(tenantId: string, secret: string): string {
   return createHmac('sha256', secret)
@@ -27,24 +27,21 @@ export function deriveMenuPublicId(tenantId: string, secret: string): string {
 }
 
 export async function authenticateCloudMenuSync(
-  rawLicenseKey: unknown,
-  rawHardwareId: unknown,
+  authorization: unknown,
 ): Promise<CloudMenuSyncIdentity> {
-  if (typeof rawLicenseKey !== 'string' || rawLicenseKey.length < 8 || rawLicenseKey.length > 64) {
+  if (typeof authorization !== 'string' || !authorization.startsWith('Bearer ')) {
     throw Object.assign(new Error('Sync credentials invalid'), { statusCode: 401 });
   }
-  if (typeof rawHardwareId !== 'string' || !/^[a-f0-9]{64}$/i.test(rawHardwareId)) {
-    throw Object.assign(new Error('Sync credentials invalid'), { statusCode: 401 });
+  if (!cloudEnv.LICENSE_PRIVATE_KEY) {
+    throw Object.assign(new Error('Sync service unavailable'), { statusCode: 503 });
   }
-  let normalized: string;
-  try { normalized = normalizeLicenseKey(rawLicenseKey); }
-  catch { throw Object.assign(new Error('Sync credentials invalid'), { statusCode: 401 }); }
-  const hashes = licenseKeyHashCandidates(normalized, cloudEnv.LICENSE_KEY_PEPPER_RING)
-    .map((candidate) => candidate.keyHash);
-  const license = await prisma.license.findFirst({
-    where: {
-      OR: [{ keyHash: { in: hashes } }, { legacyKey: normalized }],
-    },
+  const token = authorization.slice('Bearer '.length);
+  const grant = verifyMenuSyncToken(
+    token,
+    licensePublicKeyFromPrivate(cloudEnv.LICENSE_PRIVATE_KEY),
+  );
+  const license = await prisma.license.findUnique({
+    where: { id: grant.licenseId },
     select: {
       id: true,
       tenantId: true,
@@ -64,8 +61,9 @@ export async function authenticateCloudMenuSync(
   const now = new Date();
   if (
     !license
+    || license.tenantId !== grant.tenantId
     || license.status !== 'ACTIVE'
-    || license.hardwareId !== rawHardwareId
+    || license.hardwareId !== grant.hardwareId
     || license.expiresAt < now
     || !license.tenant.isActive
   ) {
@@ -75,7 +73,7 @@ export async function authenticateCloudMenuSync(
   return {
     tenantId: license.tenantId,
     licenseId: license.id,
-    hardwareId: rawHardwareId,
+    hardwareId: grant.hardwareId,
     publicId,
     name: license.tenant.name,
     slug: license.tenant.slug.toLowerCase(),
