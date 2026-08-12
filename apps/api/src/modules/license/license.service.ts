@@ -45,6 +45,11 @@ interface HeartbeatInput {
   ip?: string;
 }
 
+interface CloudBackupAuthorizationInput {
+  licenseKey: string;
+  hardwareId: string;
+}
+
 const tenantInclude = { tenant: { select: { name: true, isActive: true } } } as const;
 
 /**
@@ -168,6 +173,31 @@ function menuSyncToken(license: {
 }
 
 export const licenseService = {
+  /**
+   * Bulut yedegi icin kullanici oturumu yerine aktive lisans + cihaz bagi
+   * kullanilir. Ham lisans anahtari hicbir zaman B2 object metadata'sina
+   * veya object key'ine yazilmaz.
+   */
+  async authorizeCloudBackup(input: CloudBackupAuthorizationInput) {
+    const { license } = await findLicenseByRawKey(input.licenseKey);
+    if (!license) {
+      throw Object.assign(new Error('Lisans anahtarı geçersiz.'), { statusCode: 404 });
+    }
+    const now = new Date();
+    if (
+      license.status !== 'ACTIVE'
+      || !license.tenant.isActive
+      || license.expiresAt < now
+    ) {
+      throw Object.assign(new Error('Lisans bulut yedekleme için aktif değil.'), { statusCode: 403 });
+    }
+    if (!license.hardwareId || license.hardwareId !== input.hardwareId) {
+      await flagSuspicious(license.id, 'farkli donanimdan bulut yedekleme denemesi');
+      throw Object.assign(new Error('Lisans bu cihaza tanımlı değil.'), { statusCode: 409 });
+    }
+    return { id: license.id, tenantId: license.tenantId };
+  },
+
   /**
    * Aktivasyon — musterinin bilgisayarina ILK kurulumda cagrilir.
    * Lisansi o makineye baglar ve imzali lisansi dondurur.

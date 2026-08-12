@@ -34,6 +34,24 @@ services:
         value: v1
       - key: LICENSE_KEY_PEPPERS
         sync: false
+      # Backblaze credentials stay only in the cloud control plane. Customer
+      # Windows installations receive 15-minute, object-scoped upload URLs.
+      - key: B2_KEY_ID
+        sync: false
+      - key: B2_APPLICATION_KEY
+        sync: false
+      - key: B2_BUCKET_NAME
+        value: restotm-yedek
+      - key: B2_BUCKET_ID
+        value: 7ceea2ae3de3ea239cfd041b
+      - key: B2_S3_ENDPOINT
+        value: https://s3.us-east-005.backblazeb2.com
+      - key: B2_REGION
+        value: us-east-005
+      - key: B2_KEY_PREFIX
+        value: backups/
+      - key: B2_CLOUD_BACKUP_ENABLED
+        value: true
       - key: MENU_PUBLIC_ID_SECRET
         generateValue: true
       - key: UPDATE_SIGNING_PRIVATE_KEY

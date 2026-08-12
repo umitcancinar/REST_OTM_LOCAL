@@ -70,6 +70,8 @@ export interface LocalBackupConfig {
   /** Opsiyonel harici disk/NAS mount hedefi; production local profilde zorunludur. */
   externalBackupDir?: string;
   externalVolumePolicy?: 'require-separate' | 'warn' | 'allow';
+  /** B2 kimlik bilgisi tasimayan, Control API'den kisa omurlu izin alan adaptor. */
+  cloudReplica?: BackupCloudReplicaAdapter;
   connection: PostgresConnectionOptions;
   /** Supervisor tarafindan DPAPI ile acilip yalniz bu prosese verilen 32 byte anahtar. */
   encryptionKey: Uint8Array;
@@ -135,6 +137,10 @@ export interface BackupDownload {
   absolutePath: string;
 }
 
+export interface BackupCloudReplicaAdapter {
+  upload(download: BackupDownload): Promise<void>;
+}
+
 export interface BackupRestoreVerification {
   manifest: BackupManifest;
   plainSizeBytes: number;
@@ -173,6 +179,17 @@ export interface LocalBackupStatus {
       acceptanceRequired: boolean;
     };
     retention: BackupRetentionPolicy | null;
+  };
+  cloudReplication: {
+    configured: boolean;
+    running: boolean;
+    healthy: boolean;
+    alarm: 'NONE' | 'ERROR';
+    pendingCount: number;
+    lastSuccess: { id: string; occurredAt: string } | null;
+    lastError: { code: string; occurredAt: string } | null;
+    encryption: 'AES-256-GCM_BEFORE_UPLOAD';
+    credentialPolicy: 'SHORT_LIVED_PRESIGNED_URL';
   };
   restoreVerification: {
     running: boolean;
@@ -291,6 +308,10 @@ interface ReplicationState {
   lastError: { code: string; occurredAt: string } | null;
   lastRestoreVerification: RestoreVerificationRecord | null;
   nextRestoreVerificationDueAt: string | null;
+  cloudPendingIds: string[];
+  cloudCompletedIds: string[];
+  cloudLastSuccess: { id: string; occurredAt: string } | null;
+  cloudLastError: { code: string; occurredAt: string } | null;
 }
 
 function positiveDuration(value: number | undefined, fallback: number, field: string): number {
@@ -344,6 +365,19 @@ function isReplicationState(value: unknown): value is ReplicationState {
     || state.nextRestoreVerificationDueAt === null
     || (typeof state.nextRestoreVerificationDueAt === 'string'
       && Number.isFinite(Date.parse(state.nextRestoreVerificationDueAt)));
+  const validIdList = (items: unknown): boolean => items === undefined || (
+    Array.isArray(items)
+    && items.length <= 10_000
+    && items.every((id) => typeof id === 'string' && BACKUP_ID_PATTERN.test(id))
+    && new Set(items).size === items.length
+  );
+  const validCloudError = state.cloudLastError === undefined || state.cloudLastError === null || Boolean(
+    state.cloudLastError
+    && typeof state.cloudLastError.code === 'string'
+    && /^[A-Z0-9_]{3,64}$/.test(state.cloudLastError.code)
+    && typeof state.cloudLastError.occurredAt === 'string'
+    && Number.isFinite(Date.parse(state.cloudLastError.occurredAt)),
+  );
   return state.stateVersion === REPLICATION_STATE_VERSION
     && Array.isArray(state.pendingIds)
     && state.pendingIds.length <= 10_000
@@ -352,7 +386,11 @@ function isReplicationState(value: unknown): value is ReplicationState {
     && validEvent(state.lastSuccess)
     && validError
     && validRestore
-    && validNextDue;
+    && validNextDue
+    && validIdList(state.cloudPendingIds)
+    && validIdList(state.cloudCompletedIds)
+    && (state.cloudLastSuccess === undefined || validEvent(state.cloudLastSuccess))
+    && validCloudError;
 }
 
 function safeDecode(value: string, field: string): string {
@@ -681,6 +719,7 @@ export class LocalBackupRuntime {
   private initializing?: Promise<void>;
   private running = false;
   private replicationRunning = false;
+  private cloudReplicationRunning = false;
   private restoreVerificationRunning = false;
   private replicationState: ReplicationState = {
     stateVersion: REPLICATION_STATE_VERSION,
@@ -689,6 +728,10 @@ export class LocalBackupRuntime {
     lastError: null,
     lastRestoreVerification: null,
     nextRestoreVerificationDueAt: null,
+    cloudPendingIds: [],
+    cloudCompletedIds: [],
+    cloudLastSuccess: null,
+    cloudLastError: null,
   };
   private scheduler?: NodeJS.Timeout;
   private lastSuccess: BackupManifest | null = null;
@@ -978,6 +1021,9 @@ export class LocalBackupRuntime {
       if (this.externalRoot) {
         await this.enqueueAndReplicate(manifest);
       }
+      if (this.config.cloudReplica) {
+        await this.enqueueAndUploadCloud(manifest);
+      }
       try {
         await this.applyRetention();
       } catch {
@@ -1056,6 +1102,23 @@ export class LocalBackupRuntime {
           acceptanceRequired: Boolean(this.externalVolumeWarning),
         },
         retention: this.externalRetention ? { ...this.externalRetention } : null,
+      },
+      cloudReplication: {
+        configured: Boolean(this.config.cloudReplica),
+        running: this.cloudReplicationRunning,
+        healthy: !this.config.cloudReplica || Boolean(
+          this.replicationState.cloudPendingIds.length === 0
+          && !this.replicationState.cloudLastError
+        ),
+        alarm: this.config.cloudReplica && (
+          this.replicationState.cloudPendingIds.length > 0
+          || this.replicationState.cloudLastError
+        ) ? 'ERROR' : 'NONE',
+        pendingCount: this.replicationState.cloudPendingIds.length,
+        lastSuccess: this.replicationState.cloudLastSuccess,
+        lastError: this.replicationState.cloudLastError,
+        encryption: 'AES-256-GCM_BEFORE_UPLOAD',
+        credentialPolicy: 'SHORT_LIVED_PRESIGNED_URL',
       },
       restoreVerification: {
         running: this.restoreVerificationRunning,
@@ -1352,7 +1415,10 @@ export class LocalBackupRuntime {
 
     for (const backup of backups) {
       if (backup.manifestVersion === 1) continue;
-      if (this.replicationState.pendingIds.includes(backup.id)) continue;
+      if (
+        this.replicationState.pendingIds.includes(backup.id)
+        || this.replicationState.cloudPendingIds.includes(backup.id)
+      ) continue;
       if (keep.has(backup.id)) continue;
       const manifestPath = safeChildPath(root, `${backup.fileName}.manifest.json`);
       const dumpPath = safeChildPath(root, backup.fileName);
@@ -1403,6 +1469,28 @@ export class LocalBackupRuntime {
     }
   }
 
+  async retryCloudReplication(): Promise<void> {
+    await this.initialize();
+    if (!this.config.cloudReplica || this.cloudReplicationRunning || this.running) return;
+    this.cloudReplicationRunning = true;
+    try {
+      for (const id of [...this.replicationState.cloudPendingIds]) {
+        try {
+          const download = await this.getVerifiedDownload(id);
+          if (download.manifest.manifestVersion !== MANIFEST_VERSION) {
+            throw new LocalBackupError('BACKUP_CLOUD_SOURCE_INVALID', 'Bulut yedek kaynagi gecersiz.');
+          }
+          await this.config.cloudReplica.upload(download);
+          await this.recordCloudReplicationSuccess(id);
+        } catch {
+          await this.recordCloudReplicationFailure('BACKUP_CLOUD_UPLOAD_FAILED');
+        }
+      }
+    } finally {
+      this.cloudReplicationRunning = false;
+    }
+  }
+
   stopScheduler(): void {
     if (!this.scheduler) return;
     clearInterval(this.scheduler);
@@ -1420,6 +1508,7 @@ export class LocalBackupRuntime {
   private async runMaintenanceTick(): Promise<void> {
     await this.runScheduledIfDue().catch(() => undefined);
     await this.retryExternalReplication().catch(() => undefined);
+    await this.retryCloudReplication().catch(() => undefined);
     await this.runRestoreVerificationIfDue().catch(() => undefined);
   }
 
@@ -1439,6 +1528,10 @@ export class LocalBackupRuntime {
         ...parsed,
         lastRestoreVerification: parsed.lastRestoreVerification ?? null,
         nextRestoreVerificationDueAt: parsed.nextRestoreVerificationDueAt ?? null,
+        cloudPendingIds: parsed.cloudPendingIds ?? [],
+        cloudCompletedIds: parsed.cloudCompletedIds ?? [],
+        cloudLastSuccess: parsed.cloudLastSuccess ?? null,
+        cloudLastError: parsed.cloudLastError ?? null,
       };
     } catch (error) {
       const fsError = error as NodeJS.ErrnoException;
@@ -1471,6 +1564,21 @@ export class LocalBackupRuntime {
       }
     }
     this.replicationState.pendingIds = [...pending];
+    const completedCloud = new Set(
+      this.replicationState.cloudCompletedIds.filter((id) => localIds.has(id)),
+    );
+    const pendingCloud = new Set(
+      this.config.cloudReplica
+        ? this.replicationState.cloudPendingIds.filter((id) => localIds.has(id))
+        : [],
+    );
+    if (this.config.cloudReplica) {
+      for (const backup of localBackups) {
+        if (!completedCloud.has(backup.id)) pendingCloud.add(backup.id);
+      }
+    }
+    this.replicationState.cloudCompletedIds = [...completedCloud];
+    this.replicationState.cloudPendingIds = [...pendingCloud];
     if (!this.replicationState.nextRestoreVerificationDueAt) {
       this.replicationState.nextRestoreVerificationDueAt = this.clock().toISOString();
     }
@@ -1529,6 +1637,44 @@ export class LocalBackupRuntime {
     } finally {
       this.replicationRunning = false;
     }
+  }
+
+  private async enqueueAndUploadCloud(manifest: BackupManifestV2): Promise<void> {
+    if (!this.config.cloudReplica) return;
+    if (!this.replicationState.cloudPendingIds.includes(manifest.id)) {
+      this.replicationState.cloudPendingIds.push(manifest.id);
+    }
+    await this.persistReplicationStateBestEffort();
+    this.cloudReplicationRunning = true;
+    try {
+      await this.config.cloudReplica.upload(await this.getVerifiedDownload(manifest.id));
+      await this.recordCloudReplicationSuccess(manifest.id);
+    } catch {
+      await this.recordCloudReplicationFailure('BACKUP_CLOUD_UPLOAD_FAILED');
+    } finally {
+      this.cloudReplicationRunning = false;
+    }
+  }
+
+  private async recordCloudReplicationSuccess(id: string): Promise<void> {
+    this.replicationState.cloudPendingIds = this.replicationState.cloudPendingIds
+      .filter((pendingId) => pendingId !== id);
+    if (!this.replicationState.cloudCompletedIds.includes(id)) {
+      this.replicationState.cloudCompletedIds.push(id);
+    }
+    this.replicationState.cloudLastSuccess = { id, occurredAt: this.clock().toISOString() };
+    if (this.replicationState.cloudPendingIds.length === 0) {
+      this.replicationState.cloudLastError = null;
+      if (this.lastError?.code.startsWith('BACKUP_CLOUD_')) this.lastError = null;
+    }
+    await this.persistReplicationStateBestEffort();
+  }
+
+  private async recordCloudReplicationFailure(code: string): Promise<void> {
+    const occurredAt = this.clock().toISOString();
+    this.replicationState.cloudLastError = { code, occurredAt };
+    this.lastError = { code, occurredAt };
+    await this.persistReplicationStateBestEffort();
   }
 
   private async recordReplicationSuccess(id: string): Promise<void> {

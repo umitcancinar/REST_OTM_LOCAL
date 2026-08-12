@@ -11,6 +11,35 @@ const LICENSE_PRIVATE_KEY = (process.env.LICENSE_PRIVATE_KEY || '').replace(/\\n
 const UPDATE_SIGNING_PRIVATE_KEY = (process.env.UPDATE_SIGNING_PRIVATE_KEY || '').replace(/\\n/g, '\n');
 const UPDATE_SIGNING_PUBLIC_KEY = (process.env.UPDATE_SIGNING_PUBLIC_KEY || '').replace(/\\n/g, '\n');
 const isProductionCloud = sharedEnv.isProd && sharedEnv.RUNTIME_MODE === 'cloud';
+const B2_KEY_ID = process.env.B2_KEY_ID || '';
+const B2_APPLICATION_KEY = process.env.B2_APPLICATION_KEY || '';
+const B2_BUCKET_NAME = process.env.B2_BUCKET_NAME || '';
+const B2_BUCKET_ID = process.env.B2_BUCKET_ID || '';
+const B2_REGION = process.env.B2_REGION || '';
+const B2_KEY_PREFIX = (process.env.B2_KEY_PREFIX || 'backups/').replace(/^\/+|\/+$/g, '') + '/';
+const B2_S3_ENDPOINT = (() => {
+  const raw = process.env.B2_S3_ENDPOINT || '';
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    if (
+      url.protocol !== 'https:'
+      || url.username
+      || url.password
+      || url.pathname !== '/'
+      || url.search
+      || url.hash
+      || !/^s3\.[a-z0-9-]+\.backblazeb2\.com$/i.test(url.hostname)
+    ) throw new Error('unsafe-b2-endpoint');
+    return url.origin;
+  } catch {
+    addStartupError('B2_S3_ENDPOINT canonical Backblaze HTTPS endpoint olmali.');
+    return '';
+  }
+})();
+const B2_CLOUD_BACKUP_ENABLED = process.env.B2_CLOUD_BACKUP_ENABLED === 'true' || Boolean(
+  B2_KEY_ID || B2_APPLICATION_KEY || B2_BUCKET_NAME || B2_BUCKET_ID || B2_REGION || B2_S3_ENDPOINT,
+);
 const LICENSE_KEY_ACTIVE_PEPPER_VERSION =
   process.env.LICENSE_KEY_ACTIVE_PEPPER_VERSION || (isProductionCloud ? '' : 'dev-v1');
 const LICENSE_KEY_PEPPERS = process.env.LICENSE_KEY_PEPPERS || (isProductionCloud
@@ -123,6 +152,38 @@ if (isProductionCloud) {
       addStartupError('LICENSE_PRIVATE_KEY gecerli PEM biciminde degil.');
     }
   }
+  if (B2_CLOUD_BACKUP_ENABLED) {
+    for (const [name, value] of [
+      ['B2_KEY_ID', B2_KEY_ID],
+      ['B2_APPLICATION_KEY', B2_APPLICATION_KEY],
+      ['B2_BUCKET_NAME', B2_BUCKET_NAME],
+      ['B2_BUCKET_ID', B2_BUCKET_ID],
+      ['B2_REGION', B2_REGION],
+      ['B2_S3_ENDPOINT', B2_S3_ENDPOINT],
+    ] as const) {
+      if (!value) addStartupError(`${name} tanimli degil.`);
+    }
+  }
+}
+
+if (B2_BUCKET_NAME && !/^[a-z0-9][a-z0-9-]{4,48}[a-z0-9]$/.test(B2_BUCKET_NAME)) {
+  addStartupError('B2_BUCKET_NAME gecersiz.');
+}
+if (B2_BUCKET_ID && !/^[a-f0-9]{24}$/i.test(B2_BUCKET_ID)) {
+  addStartupError('B2_BUCKET_ID gecersiz.');
+}
+if (B2_REGION && !/^[a-z0-9-]{3,32}$/.test(B2_REGION)) {
+  addStartupError('B2_REGION gecersiz.');
+}
+if (
+  !/^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*\/$/.test(B2_KEY_PREFIX)
+  || B2_KEY_PREFIX.split('/').includes('..')
+) {
+  addStartupError('B2_KEY_PREFIX guvenli bir object prefix olmali.');
+}
+if (B2_S3_ENDPOINT && B2_REGION) {
+  const endpointRegion = new URL(B2_S3_ENDPOINT).hostname.split('.')[1];
+  if (endpointRegion !== B2_REGION) addStartupError('B2_S3_ENDPOINT ile B2_REGION eslesmiyor.');
 }
 
 export const cloudEnv = {
@@ -132,6 +193,14 @@ export const cloudEnv = {
   UPDATE_SIGNING_PUBLIC_KEY,
   UPDATE_ARTIFACT_ALLOWED_ORIGINS,
   LICENSE_KEY_PEPPER_RING: licenseKeyPepperRing,
+  B2_KEY_ID,
+  B2_APPLICATION_KEY,
+  B2_BUCKET_NAME,
+  B2_BUCKET_ID,
+  B2_REGION,
+  B2_KEY_PREFIX,
+  B2_S3_ENDPOINT,
+  B2_CLOUD_BACKUP_ENABLED,
   MENU_PUBLIC_ID_SECRET: requireSecret(
     'MENU_PUBLIC_ID_SECRET',
     'dev-menu-public-id-secret-CHANGE-ME-32bytes',

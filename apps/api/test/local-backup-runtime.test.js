@@ -704,3 +704,36 @@ test('recovery yuzeyi sadece status/list/export/download saglar ve router guards
     await fx.cleanup();
   }
 });
+
+test('bulut yedegi sifreli kaynagi kalici kuyrukla retry eder ve basarida saglikli olur', async (t) => {
+  let attempts = 0;
+  const uploaded = [];
+  const cloudReplica = {
+    async upload(download) {
+      attempts += 1;
+      assert.equal(download.manifest.manifestVersion, 2);
+      assert.equal(download.absolutePath.endsWith('.dump.enc'), true);
+      if (attempts === 1) throw new Error('network secret must not escape');
+      uploaded.push(download.manifest.id);
+    },
+  };
+  const fx = await fixture({ cloudReplica });
+  t.after(() => fx.cleanup());
+
+  const backup = await fx.runtime.createBackup();
+  const failed = await fx.runtime.getStatus();
+  assert.equal(failed.cloudReplication.configured, true);
+  assert.equal(failed.cloudReplication.pendingCount, 1);
+  assert.equal(failed.cloudReplication.alarm, 'ERROR');
+  assert.equal(failed.cloudReplication.lastError.code, 'BACKUP_CLOUD_UPLOAD_FAILED');
+  assert.equal(JSON.stringify(failed).includes('network secret'), false);
+
+  await fx.runtime.retryCloudReplication();
+  const recovered = await fx.runtime.getStatus();
+  assert.deepEqual(uploaded, [backup.id]);
+  assert.equal(recovered.cloudReplication.pendingCount, 0);
+  assert.equal(recovered.cloudReplication.healthy, true);
+  assert.equal(recovered.cloudReplication.alarm, 'NONE');
+  assert.equal(recovered.cloudReplication.encryption, 'AES-256-GCM_BEFORE_UPLOAD');
+  assert.equal(recovered.cloudReplication.credentialPolicy, 'SHORT_LIVED_PRESIGNED_URL');
+});

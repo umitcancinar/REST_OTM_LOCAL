@@ -203,6 +203,9 @@ export const localEnv = {
     5 * 60 * 1000,
     30 * 1000,
   ),
+  LOCAL_CLOUD_BACKUP_ENABLED: sharedEnv.isProd && sharedEnv.RUNTIME_MODE === 'local'
+    ? true
+    : process.env.LOCAL_CLOUD_BACKUP_ENABLED === 'true',
   LOCAL_UPDATE_MANIFEST_URL,
   LOCAL_UPDATE_PUBLIC_KEY,
   LOCAL_UPDATE_ALLOWED_ORIGINS,

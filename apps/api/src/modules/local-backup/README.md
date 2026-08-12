@@ -135,3 +135,18 @@ dizinlerinin farklı fiziksel disklerde seçilmesi önerilir.
 Restore drill aralığı `BACKUP_RESTORE_VERIFICATION_INTERVAL_MS` ile ayarlanır;
 production varsayılanı 7 gündür. Hata retry aralığı
 `BACKUP_RESTORE_VERIFICATION_RETRY_MS` ile ayarlanır ve varsayılanı 6 saattir.
+
+## Ucuncu katman: Backblaze B2
+
+Uretim local profilinde bulut replikasyonu otomatik etkindir. Lokal motor ham
+B2 anahtari bilmez. Aktif lisans anahtari ve donanim kimligiyle Control API'den
+15 dakikalik, yalniz kendi restoran/lisans/cihaz object yoluna yazabilen iki
+presigned URL alir. AES-256-GCM ciphertext ve manifest dogrudan B2'ye yuklenir;
+Control API `HeadObject` ile boyut ve SHA-256 metadata'sini dogrulamadan islemi
+basarili saymaz. Basarisiz yukleme kalici kuyrukta kalir ve scheduler yeniden
+dener. Lokal retention, buluta henuz aktarilmamis yedegi silmez.
+
+B2 sirlarinin yeri yalniz `rest-otm-control-api` Render environment alanidir:
+`B2_KEY_ID`, `B2_APPLICATION_KEY`, `B2_BUCKET_NAME`, `B2_BUCKET_ID`,
+`B2_S3_ENDPOINT`, `B2_REGION`, `B2_KEY_PREFIX`. Bunlar Windows paketine,
+`.env` dosyasina veya Git'e yazilmaz.

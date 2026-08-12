@@ -6,6 +6,7 @@ import { publicCmsLimiter } from '../middlewares/rateLimiter.middleware';
 import authRoutes from '../modules/auth/auth.routes';
 import superAdminMfaRoutes from '../modules/auth/superadmin-mfa.routes';
 import cloudMenuSyncRoutes from '../modules/cloud-menu-sync/cloud-menu-sync.routes';
+import cloudBackupRoutes from '../modules/cloud-backup/cloud-backup.routes';
 import cloudUpdateAdminRoutes, {
   cloudUpdateManifestRouter,
 } from '../modules/cloud-update/cloud-update.routes';
@@ -91,6 +92,7 @@ export function registerCloudProfile(
   if (options.includeAuth !== false) app.use('/api/auth', authRoutes);
   if (options.includeAuth !== false) app.use('/api/auth/superadmin', superAdminMfaRoutes);
   app.use('/api/public', publicCmsLimiter, publicRoutes);
+  if (cloudEnv.B2_CLOUD_BACKUP_ENABLED) app.use('/api/license/backup', cloudBackupRoutes);
   app.use('/api/license', licenseRoutes);
   app.use('/api/license-admin', licenseAdminRoutes);
   app.use('/api/cloud-sync/v1', cloudMenuSyncRoutes);

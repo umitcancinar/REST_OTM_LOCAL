@@ -9,6 +9,7 @@ import customerRoutes from '../modules/customers/customer.routes';
 import inventoryRoutes from '../modules/inventory/inventory.routes';
 import {
   createLocalBackupRouter,
+  ControlPlaneCloudBackupAdapter,
   LOCAL_BACKUP_RECOVERY_RULES,
   LocalBackupRuntime,
   postgresConnectionFromUrl,
@@ -73,6 +74,14 @@ export function registerLocalProfile(
           ? { externalBackupDir: localEnv.LOCAL_BACKUP_EXTERNAL_DIR }
           : {}),
         externalVolumePolicy: localEnv.LOCAL_BACKUP_EXTERNAL_VOLUME_POLICY,
+        ...(localEnv.LOCAL_CLOUD_BACKUP_ENABLED
+          ? {
+              cloudReplica: new ControlPlaneCloudBackupAdapter({
+                serverUrl: localEnv.LOCAL_LICENSE_SERVER_URL,
+                licenseDataDir: localEnv.LOCAL_LICENSE_DATA_DIR,
+              }),
+            }
+          : {}),
         encryptionKey: localEnv.LOCAL_BACKUP_KEY(),
         encryptionKeyId: localEnv.LOCAL_BACKUP_KEY_ID,
         pgDumpPath: localEnv.PG_DUMP_PATH,
