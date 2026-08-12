@@ -92,7 +92,7 @@ export default function TenantsPage() {
         </button>
       </div>
 
-      <div className="card" style={{ padding: '24px', backgroundColor: 'white', borderRadius: '12px', marginTop: '24px' }}>
+      <div className="card" style={{ marginTop: '24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', border: '1px solid #e2e8f0', padding: '8px 16px', borderRadius: '8px', marginBottom: '24px' }}>
           <Search size={18} style={{ color: '#94a3b8', marginRight: '8px' }} />
           <input 
