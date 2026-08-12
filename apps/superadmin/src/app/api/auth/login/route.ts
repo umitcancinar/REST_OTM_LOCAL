@@ -1,6 +1,12 @@
 import { createHmac } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { controlApiUrl, readControlApiJson } from "@/lib/control-api";
+import {
+  ControlApiProtocolError,
+  ControlApiUnavailableError,
+  controlApiUrl,
+  readControlApiJson,
+  waitForControlApiReady,
+} from "@/lib/control-api";
 import { AdminMailError, adminMailUserMessage, sendAdminVerificationEmail } from "@/lib/server-mail";
 import { createPendingMfa, setPendingMfa } from "@/lib/server-session";
 import { mutationRequestError } from "@/lib/request-security";
@@ -32,7 +38,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const upstream = await fetch(controlApiUrl("auth/superadmin/mfa/start"), { method: "POST", headers: { "Content-Type": "application/json", "User-Agent": req.headers.get("user-agent") || "REST_OTM Superadmin", "x-rest-otm-service-secret": process.env.SUPERADMIN_BFF_SERVICE_SECRET, "x-rest-otm-client-key": clientRateKey(req) }, body: JSON.stringify({ email, password }), cache: "no-store", redirect: "error" });
+    await waitForControlApiReady();
+    const upstream = await fetch(controlApiUrl("auth/superadmin/mfa/start"), { method: "POST", headers: { "Content-Type": "application/json", "User-Agent": req.headers.get("user-agent") || "REST_OTM Superadmin", "x-rest-otm-service-secret": process.env.SUPERADMIN_BFF_SERVICE_SECRET, "x-rest-otm-client-key": clientRateKey(req) }, body: JSON.stringify({ email, password }), cache: "no-store", redirect: "error", signal: AbortSignal.timeout(15_000) });
     const payload = await readControlApiJson<{ message?: string; data?: { challengeId?: string; code?: string; expiresAt?: string; email?: string; emailHint?: string } }>(upstream, "superadmin-mfa-start");
     if (!upstream.ok) return NextResponse.json({ message: payload?.message || "E-posta, parola veya doğrulama bilgisi hatalı." }, { status: upstream.status });
     const data = payload.data;
@@ -49,7 +56,19 @@ export async function POST(req: NextRequest) {
         { status: 503 },
       );
     }
+    if (error instanceof ControlApiUnavailableError) {
+      return NextResponse.json(
+        { code: "CONTROL_API_UNAVAILABLE", message: "Kontrol sunucusu şu anda hazır değil. Lütfen kısa bir süre sonra tekrar deneyin." },
+        { status: 503 },
+      );
+    }
+    if (error instanceof ControlApiProtocolError) {
+      return NextResponse.json(
+        { code: "CONTROL_API_BAD_RESPONSE", message: "Kontrol sunucusu geçersiz yanıt verdi. Lütfen kısa bir süre sonra tekrar deneyin." },
+        { status: 502 },
+      );
+    }
     console.error("[superadmin-login]", error);
-    return NextResponse.json({ message: "Giriş doğrulaması başlatılamadı." }, { status: 502 });
+    return NextResponse.json({ code: "LOGIN_START_FAILED", message: "Giriş doğrulaması başlatılamadı." }, { status: 502 });
   }
 }

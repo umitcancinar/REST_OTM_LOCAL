@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   ControlApiProtocolError,
+  ControlApiUnavailableError,
   controlApiBase,
   controlApiUrl,
   readControlApiJson,
+  waitForControlApiReady,
 } from "../src/lib/control-api.ts";
 
 test("control API root URL automatically uses the /api prefix", () => {
@@ -44,5 +46,44 @@ test("control API parser rejects HTML without exposing the response body", async
   await assert.rejects(
     () => readControlApiJson(response, "test"),
     (error: unknown) => error instanceof ControlApiProtocolError && !error.message.includes("secret upstream page"),
+  );
+});
+
+test("readiness probe waits through Render HTML 502 and succeeds on JSON readiness", async () => {
+  const responses = [
+    new Response("<!DOCTYPE html><title>Bad Gateway</title>", {
+      status: 502,
+      headers: { "content-type": "text/html; charset=utf-8" },
+    }),
+    new Response(JSON.stringify({ success: true, database: "ready" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }),
+  ];
+  const delays: number[] = [];
+
+  await waitForControlApiReady({
+    attempts: 2,
+    controlApiBaseUrl: "https://control.example.com/api",
+    fetchImpl: async () => responses.shift()!,
+    wait: async (delayMs) => { delays.push(delayMs); },
+  });
+
+  assert.deepEqual(delays, [1_500]);
+  assert.equal(responses.length, 0);
+});
+
+test("readiness probe rejects an unavailable control API without parsing HTML", async () => {
+  await assert.rejects(
+    () => waitForControlApiReady({
+      attempts: 2,
+      controlApiBaseUrl: "https://control.example.com/api",
+      fetchImpl: async () => new Response("<html>provider error</html>", {
+        status: 502,
+        headers: { "content-type": "text/html" },
+      }),
+      wait: async () => undefined,
+    }),
+    ControlApiUnavailableError,
   );
 });
