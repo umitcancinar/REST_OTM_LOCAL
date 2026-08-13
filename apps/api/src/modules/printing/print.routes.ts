@@ -33,10 +33,19 @@ const reprintLimiter = rateLimit({
   keyGenerator: operationRateKey,
   message: { success: false, message: 'Yeniden baskı komut limiti aşıldı.' },
 });
+const discoveryLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: operationRateKey,
+  message: { success: false, message: 'Yazıcı taraması kısa süre içinde çok fazla çalıştırıldı.' },
+});
 
 // Yazıcı yönetimi — ayarlar ekranına erişebilen ADMIN ve OWNER
 router.get('/', printController.getPrinters);
 router.get('/status', operationsAccess, operationsReadLimiter, printController.getStatus);
+router.get('/discover', operationsAccess, discoveryLimiter, printController.discoverPrinters);
 router.get('/jobs/summary', operationsAccess, operationsReadLimiter, printController.getOperationsSummary);
 router.get('/jobs', operationsAccess, operationsReadLimiter, printController.getJobs);
 router.get('/jobs/:id', operationsAccess, operationsReadLimiter, printController.getJob);

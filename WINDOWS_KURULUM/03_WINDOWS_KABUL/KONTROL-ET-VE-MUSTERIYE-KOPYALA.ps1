@@ -30,6 +30,7 @@ if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid) {
 }
 
 $candidateSupportTools = foreach ($supportToolName in @(
+    'Find-RestOtmNetworkDevices.ps1',
     'Get-RestOtmAccessAddresses.ps1',
     'Get-RestOtmDiagnosticBundle.ps1',
     'Repair-RestOtmHost.ps1'
@@ -60,6 +61,11 @@ $addressTool = $candidateSupportTools | Where-Object Name -eq 'Get-RestOtmAccess
 $addressToolPath = [string]$addressTool.Source
 & $addressToolPath
 if (-not $?) { throw 'Kurulu makine adres araci kabul testi basarisiz.' }
+
+$networkTool = $candidateSupportTools | Where-Object Name -eq 'Find-RestOtmNetworkDevices.ps1' | Select-Object -First 1
+$networkToolPath = [string]$networkTool.Source
+& $networkToolPath
+if (-not $?) { throw 'Yerel ag ve yazici kesif araci kabul testi basarisiz.' }
 
 foreach ($endpoint in @(
     'http://127.0.0.1:4100/api/health',

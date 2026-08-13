@@ -12,8 +12,16 @@ import {
   parsePrintJobListQuery,
   resolveReprintCommandId,
 } from './print-outbox.policy';
+import { discoverLocalPrinters } from './printer-discovery';
 
 export const printController = {
+  async discoverPrinters(_req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const result = await discoverLocalPrinters();
+      apiResponse({ res, data: result, message: 'Yerel yazıcı taraması tamamlandı' });
+    } catch (error) { next(error); }
+  },
+
   async getPrinters(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const printers = await printService.getPrinters(getTenantId(req));

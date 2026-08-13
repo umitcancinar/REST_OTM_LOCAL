@@ -198,6 +198,7 @@ try {
     $bundle = Join-Path $candidateVersionRoot ("RESTOTM-Setup-$Version-x64.exe")
     if (-not (Test-Path -LiteralPath $bundle -PathType Leaf)) { throw "Imzali aday setup eksik: $bundle" }
     foreach ($supportTool in @(
+        'Find-RestOtmNetworkDevices.ps1',
         'Get-RestOtmAccessAddresses.ps1',
         'Get-RestOtmDiagnosticBundle.ps1',
         'Repair-RestOtmHost.ps1'

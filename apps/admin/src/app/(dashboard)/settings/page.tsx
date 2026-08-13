@@ -9,6 +9,7 @@ import {
   AlignLeft, AlignCenter, AlignRight, CreditCard, ExternalLink,
   Building2, UsersRound, Printer, Palette, ReceiptText, Wifi,
   WifiOff, Play, RotateCcw, ChevronRight, Ruler, Copy, Eye, EyeOff, KeyRound, Clock,
+  Radar,
 } from 'lucide-react';
 import {
   DEFAULT_PRINT_SETTINGS,
@@ -68,6 +69,7 @@ const ALIGN_OPTIONS: Array<{ value: Align; label: string }> = [
 ];
 
 type SettingsTab = 'general' | 'users' | 'printers' | 'print-design' | 'pos' | 'e-invoice';
+type DiscoveredPrinter = { ipAddress: string; port: number; latencyMs: number };
 
 const SETTINGS_TABS = [
   { id: 'general', label: 'Genel Bilgiler', hint: 'İşletme profili', icon: Building2 },
@@ -101,6 +103,9 @@ export default function SettingsPage() {
   const [isPrintersLoading, setIsPrintersLoading] = useState(false);
   const [agentStatus, setAgentStatus] = useState<{ agentConnected: boolean; agentCount: number } | null>(null);
   const [testingPrinterId, setTestingPrinterId] = useState<string | null>(null);
+  const [isDiscoveringPrinters, setIsDiscoveringPrinters] = useState(false);
+  const [discoveredPrinters, setDiscoveredPrinters] = useState<DiscoveredPrinter[]>([]);
+  const [printerDiscoveryMessage, setPrinterDiscoveryMessage] = useState('');
 
   // Print Layout State
   const [printSettings, setPrintSettings] = useState<PrintSettings>(() => mergePrintSettings(DEFAULT_PRINT_SETTINGS));
@@ -221,6 +226,38 @@ export default function SettingsPage() {
     } catch(err) {
       alert('Yazıcı eklenirken hata oluştu.');
     }
+  };
+
+  const handleDiscoverPrinters = async () => {
+    setIsDiscoveringPrinters(true);
+    setPrinterDiscoveryMessage('Aynı ağdaki 9100 portlu termal yazıcılar aranıyor…');
+    try {
+      const result = await api.get('/printers/discover') as {
+        printers: DiscoveredPrinter[];
+        scannedAddressCount: number;
+        durationMs: number;
+      };
+      setDiscoveredPrinters(result.printers);
+      setPrinterDiscoveryMessage(
+        result.printers.length > 0
+          ? `${result.printers.length} yazıcı adayı bulundu. Kullanacağın cihazı seç.`
+          : `${result.scannedAddressCount} yerel adres kontrol edildi; 9100 portu açık yazıcı bulunamadı. Yazıcının açık, Ethernet/Wi-Fi bağlantısının aynı ağda ve RAW portunun etkin olduğunu kontrol et.`,
+      );
+    } catch (error: any) {
+      setDiscoveredPrinters([]);
+      setPrinterDiscoveryMessage(error?.message || 'Yazıcı taraması tamamlanamadı.');
+    } finally {
+      setIsDiscoveringPrinters(false);
+    }
+  };
+
+  const selectDiscoveredPrinter = (printer: DiscoveredPrinter) => {
+    setNewPrinter((current) => ({
+      ...current,
+      name: current.name || `Yazıcı ${printer.ipAddress}`,
+      ipAddress: printer.ipAddress,
+      port: String(printer.port),
+    }));
   };
 
   const handleUpdatePrinter = async (e: React.FormEvent) => {
@@ -677,7 +714,44 @@ export default function SettingsPage() {
               </div>
 
               <div className="card" style={{ marginBottom: '24px' }}>
-                <h3 style={{ marginBottom: '20px', fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)' }}>🖨️ Yeni Yazıcı Ekle</h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
+                  <div>
+                    <h3 style={{ marginBottom: '4px', fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)' }}>🖨️ Yeni Yazıcı Ekle</h3>
+                    <p style={{ fontSize: '0.8125rem', color: 'var(--text-tertiary)' }}>IP bilmiyorsan aynı yerel ağı otomatik tara.</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    disabled={isDiscoveringPrinters}
+                    onClick={handleDiscoverPrinters}
+                  >
+                    <Radar size={17} /> {isDiscoveringPrinters ? 'Taranıyor…' : 'Yazıcıları Tara'}
+                  </button>
+                </div>
+                {printerDiscoveryMessage && (
+                  <div style={{
+                    padding: '12px 14px', marginBottom: 14, borderRadius: 'var(--radius-md)',
+                    background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                    color: 'var(--text-secondary)', fontSize: '0.8125rem',
+                  }}>
+                    {printerDiscoveryMessage}
+                  </div>
+                )}
+                {discoveredPrinters.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
+                    {discoveredPrinters.map((printer) => (
+                      <button
+                        key={`${printer.ipAddress}:${printer.port}`}
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() => selectDiscoveredPrinter(printer)}
+                        title="Bu adresi yeni yazıcı formuna aktar"
+                      >
+                        <Wifi size={15} /> {printer.ipAddress}:{printer.port} · {printer.latencyMs} ms
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <form onSubmit={handleCreatePrinter} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', alignItems: 'flex-end' }}>
                   <div className="input-group" style={{ marginBottom: 0 }}><label>Yazıcı Adı</label><input required type="text" className="input" placeholder="Örn: Ana Mutfak" value={newPrinter.name} onChange={e => setNewPrinter({...newPrinter, name: e.target.value})} /></div>
                   <div className="input-group" style={{ marginBottom: 0 }}>

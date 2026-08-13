@@ -169,6 +169,20 @@ test('customer address helper derives only the installed machine hostname and pr
   assert.doesNotMatch(acceptance, /YEREL-AG-GIRIS-ADRESLERI/);
 });
 
+test('signed network helper scans only bounded Private LAN raw-printer targets', async () => {
+  const tool = await source('scripts/Find-RestOtmNetworkDevices.ps1');
+  const build = await source('../../WINDOWS_KURULUM/02_WINDOWS_DERLEME/ADAYI-DERLE.ps1');
+  const acceptance = await source('../../WINDOWS_KURULUM/03_WINDOWS_KABUL/KONTROL-ET-VE-MUSTERIYE-KOPYALA.ps1');
+  assert.match(tool, /NetworkCategory -eq 'Private'/);
+  assert.match(tool, /Test-PrivateIpv4/);
+  assert.match(tool, /ConnectAsync\(\$ipAddress, 9100\)/);
+  assert.match(tool, /ThrottleLimit 64/);
+  assert.match(tool, /targets\.Count -ge 1024/);
+  assert.doesNotMatch(tool, /Invoke-WebRequest|DownloadString|PhysicalAddress|LinkLayerAddress/i);
+  assert.match(build, /Find-RestOtmNetworkDevices\.ps1/);
+  assert.match(acceptance, /Yerel ag ve yazici kesif araci kabul testi basarisiz/);
+});
+
 test('installer build is fail-fast on artifacts and signing material', async () => {
   const build = await source('scripts/Build-RestOtmInstaller.ps1');
   const common = await source('scripts/RestOtm.Windows.Common.psm1');

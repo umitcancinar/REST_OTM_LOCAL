@@ -62,6 +62,16 @@ DIGER TELEFON/TABLETLER
    garson e-posta/sifresi veya PIN'i ile girin.
 6. Adres acilmazsa rastgele firewall ayari degistirmeyin; yetkiliyi arayin.
 
+YAZICI IP ADRESINI BULMA
+------------------------
+1. Yazicilari acin ve Ethernet/Wi-Fi ile ana bilgisayarla ayni aga baglayin.
+2. Find-RestOtmNetworkDevices.ps1 dosyasini YONETICI olarak calistirin.
+3. Masaustunde RESTOTM-AG-VE-YAZICI-TARAMASI.txt olusur.
+4. "TERMAL YAZICI ADAYLARI" altindaki 9100 portlu IP'lerden kullanacaginizi
+   yonetim paneli > Ayarlar > Yazicilar ekraninda secin.
+5. Paneldeki "Yazicilari Tara" dugmesi ayni isi otomatik yapar ve IP'yi forma
+   tek tikla aktarir.
+
 SORUN OLURSA YETKILIYE SOYLEYECEGINIZ 4 SEY
 -------------------------------------------
 1. Once bilgisayari bir kez yeniden baslatin ve 5 dakika bekleyin.

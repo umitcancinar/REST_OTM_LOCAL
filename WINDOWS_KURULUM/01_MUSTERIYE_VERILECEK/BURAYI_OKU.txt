@@ -5,8 +5,8 @@ Test edilmemis veya imzasiz bir dosyayi musteriye vermek guvenli degildir.
 
 Gercek RESTOTM-Setup-X.Y.Z-x64.exe ile ayni yayinci tarafindan imzalanmis
 Repair-RestOtmHost.ps1, Get-RestOtmDiagnosticBundle.ps1 ve
-Get-RestOtmAccessAddresses.ps1 araclari su iki islemden sonra buraya OTOMATIK
-kopyalanir:
+Get-RestOtmAccessAddresses.ps1 ile Find-RestOtmNetworkDevices.ps1 araclari su
+iki islemden sonra buraya OTOMATIK kopyalanir:
 
 1) 02_WINDOWS_DERLEME\ADAYI-DERLE.ps1 gercek Windows bilgisayarda calisir.
 2) Aday temiz Windows sanal makineye kurulur, bilgisayar yeniden baslatilir ve

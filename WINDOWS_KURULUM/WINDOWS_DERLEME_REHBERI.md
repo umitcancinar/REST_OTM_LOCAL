@@ -30,7 +30,7 @@ Set-ExecutionPolicy -Scope Process RemoteSigned
   -UpdatePublicKey 'C:\GuvenliGirdiler\update-public-key.pem'
 ```
 
-Script kaynakları derler, API'nin tam npm/Prisma çalışma closure'ını çıkarır, Rust servis/bootstrap/launcher PE dosyalarını üretir, kendi PE dosyalarını imzalar, üçüncü taraf PE imzalarını denetler, payload'ı denetler ve MSI + imzalı Burn setup üretir. Güvenli onarım, sırları ayıklayan tanı ve kurulu bilgisayarın gerçek LAN adreslerini gösteren araçlar da setup ile aynı sertifikayla imzalanır. Bir adım başarısızsa müşteri dosyası üretmez.
+Script kaynakları derler, API'nin tam npm/Prisma çalışma closure'ını çıkarır, Rust servis/bootstrap/launcher PE dosyalarını üretir, kendi PE dosyalarını imzalar, üçüncü taraf PE imzalarını denetler, payload'ı denetler ve MSI + imzalı Burn setup üretir. Güvenli onarım, sırları ayıklayan tanı, kurulu bilgisayarın gerçek LAN adresleri ve termal yazıcı keşif araçları da setup ile aynı sertifikayla imzalanır. Bir adım başarısızsa müşteri dosyası üretmez.
 
 Çıktı: `WINDOWS_KURULUM\04_ADAY_CIKTISI\<sürüm>\RESTOTM-Setup-<sürüm>-x64.exe`.
 
