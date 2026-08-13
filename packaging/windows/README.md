@@ -37,7 +37,7 @@ Yerel veri icin PostgreSQL secimi bilincli: ayni anda kasa, garson, mutfak/print
 
 PowerShell betikleri ayni politikayi kurulum oncesi kontrol, operasyonel repair ve Windows CI dogrulamasi icin ifade eder. Musteri kurulumu `ExecutionPolicy Bypass`, internetten script indirme veya kaynak kod calistirma kullanmaz. Uretim yolunda native ve imzali bootstrap yardimcisi zorunludur.
 
-Teslim klasorunde setup ile ayni sertifikayla Authenticode imzalanmis iki destek araci bulunur. `Repair-RestOtmHost.ps1` veri/secret silmeden receipt, native bootstrap, ACL, servis recovery, dar firewall ve canli child sagligini dogrular/onarir. `Get-RestOtmDiagnosticBundle.ps1` yalniz sinirli servis/port/firewall/hash/log bilgisini toplar; lisans, e-posta, bearer, parola, token ve DB URL degerlerini ZIP olusmadan once redakte eder.
+Teslim klasorunde setup ile ayni sertifikayla Authenticode imzalanmis uc destek araci bulunur. `Repair-RestOtmHost.ps1` veri/secret silmeden receipt, native bootstrap, ACL, servis recovery, dar firewall ve canli child sagligini dogrular/onarir. `Get-RestOtmDiagnosticBundle.ps1` yalniz sinirli servis/port/firewall/hash/log bilgisini toplar; lisans, e-posta, bearer, parola, token ve DB URL degerlerini ZIP olusmadan once redakte eder. `Get-RestOtmAccessAddresses.ps1` paket hazirlanan test VM'sinin adresini tasimaz; yalniz calistirildigi kurulu musteri bilgisayarinin config hostname'ini ve private IPv4 adreslerini masaustune yazar.
 
 ## Secret ve lisans siniri
 

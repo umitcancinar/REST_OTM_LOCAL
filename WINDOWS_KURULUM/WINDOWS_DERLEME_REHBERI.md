@@ -30,7 +30,7 @@ Set-ExecutionPolicy -Scope Process RemoteSigned
   -UpdatePublicKey 'C:\GuvenliGirdiler\update-public-key.pem'
 ```
 
-Script kaynakları derler, API'nin tam npm/Prisma çalışma closure'ını çıkarır, Rust servis/bootstrap/launcher PE dosyalarını üretir, kendi PE dosyalarını imzalar, üçüncü taraf PE imzalarını denetler, payload'ı denetler ve MSI + imzalı Burn setup üretir. Güvenli onarım ve sırları ayıklayan tanı araçları da setup ile aynı sertifikayla imzalanır. Bir adım başarısızsa müşteri dosyası üretmez.
+Script kaynakları derler, API'nin tam npm/Prisma çalışma closure'ını çıkarır, Rust servis/bootstrap/launcher PE dosyalarını üretir, kendi PE dosyalarını imzalar, üçüncü taraf PE imzalarını denetler, payload'ı denetler ve MSI + imzalı Burn setup üretir. Güvenli onarım, sırları ayıklayan tanı ve kurulu bilgisayarın gerçek LAN adreslerini gösteren araçlar da setup ile aynı sertifikayla imzalanır. Bir adım başarısızsa müşteri dosyası üretmez.
 
 Çıktı: `WINDOWS_KURULUM\04_ADAY_CIKTISI\<sürüm>\RESTOTM-Setup-<sürüm>-x64.exe`.
 
@@ -52,10 +52,10 @@ Set-ExecutionPolicy -Scope Process RemoteSigned
   -RebootCompleted
 ```
 
-Bu test servis, delayed auto-start, restricted service SID, 120 saniye preshutdown, restart politikası, DPAPI secret envelope, hash bağlı bootstrap receipt, dar firewall, yalnız-loopback iç servisler, PostgreSQL `pg_ctl` kapanışı, gateway ve web endpointlerini kontrol eder. Başarılı olursa aynı imzalı setup ile aynı yayımcı tarafından imzalanmış onarım/tanı araçları `01_MUSTERIYE_VERILECEK` klasörüne kopyalanır.
+Bu test servis, delayed auto-start, restricted service SID, 120 saniye preshutdown, restart politikası, DPAPI secret envelope, hash bağlı bootstrap receipt, dar firewall, yalnız-loopback iç servisler, PostgreSQL `pg_ctl` kapanışı, gateway ve web endpointlerini kontrol eder. Başarılı olursa aynı imzalı setup ile aynı yayımcı tarafından imzalanmış onarım/tanı/adres araçları `01_MUSTERIYE_VERILECEK` klasörüne kopyalanır.
 
 ## 4. Müşteriye verilecekler
 
-Yalnız `WINDOWS_KURULUM\01_MUSTERIYE_VERILECEK` klasörünü verin. Bu klasörde setup, SHA-256, kabul raporu, müşteri rehberi, imzalı güvenli onarım aracı ve redaksiyonlu tanı aracı bulunur. Kaynak kod, `build`, sertifika, PFX, private key, `.env`, veritabanı veya ham log klasörünü vermeyin.
+Yalnız `WINDOWS_KURULUM\01_MUSTERIYE_VERILECEK` klasörünü verin. Bu klasörde setup, SHA-256, kabul raporu, müşteri rehberi, imzalı güvenli onarım aracı, redaksiyonlu tanı aracı ve yalnız kurulduğu bilgisayarın gerçek LAN adreslerini gösteren araç bulunur. Kaynak kod, `build`, sertifika, PFX, private key, `.env`, veritabanı veya ham log klasörünü vermeyin.
 
 Müşteriye ayrıca SuperAdmin panelinden üretilen tek kullanımlık gösterilen `RSTO-XXXX-XXXX-XXXX` lisans anahtarını güvenli kanaldan iletin. Anahtar ikinci cihazda kullanılamaz.

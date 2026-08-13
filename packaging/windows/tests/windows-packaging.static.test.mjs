@@ -156,6 +156,19 @@ test('signed customer support tools repair only canonical state and redact diagn
   assert.match(accept, /SignerCertificate\.Thumbprint/);
 });
 
+test('customer address helper derives only the installed machine hostname and private IPv4 addresses', async () => {
+  const tool = await source('scripts/Get-RestOtmAccessAddresses.ps1');
+  const build = await source('../../WINDOWS_KURULUM/02_WINDOWS_DERLEME/ADAYI-DERLE.ps1');
+  const acceptance = await source('../../WINDOWS_KURULUM/03_WINDOWS_KABUL/KONTROL-ET-VE-MUSTERIYE-KOPYALA.ps1');
+  assert.match(tool, /LOCAL_LAN_HOSTNAME/);
+  assert.match(tool, /Test-PrivateIpv4/);
+  assert.match(tool, /RESTOTM-GIRIS-ADRESLERI\.txt/);
+  assert.doesNotMatch(tool, /secret|token|password|DATABASE_URL/i);
+  assert.match(build, /Get-RestOtmAccessAddresses\.ps1/);
+  assert.match(acceptance, /Kurulu makine adres araci kabul testi basarisiz/);
+  assert.doesNotMatch(acceptance, /YEREL-AG-GIRIS-ADRESLERI/);
+});
+
 test('installer build is fail-fast on artifacts and signing material', async () => {
   const build = await source('scripts/Build-RestOtmInstaller.ps1');
   const common = await source('scripts/RestOtm.Windows.Common.psm1');

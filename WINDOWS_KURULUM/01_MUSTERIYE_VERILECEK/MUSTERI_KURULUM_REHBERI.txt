@@ -54,12 +54,13 @@ DIGER TELEFON/TABLETLER
 -----------------------
 1. Cihaz ana bilgisayarla AYNI Wi-Fi aginda olsun.
 2. Ag turu ana bilgisayarda "Ozel / Private" olmali.
-3. Kurulum yapan yetkilinin verdigi http://restotm-XXXXXXXX.local:8787 adresini acin.
-   Gerekirse ayni adres ana bilgisayarin router tarafindan atanmis yerel IP'siyle
-   de kullanilir: ornek http://192.168.1.50:8787
-4. Garson paneli icin adrese /garson ekleyin ve Personeller ekraninda atanmis
+3. Ana bilgisayarda Get-RestOtmAccessAddresses.ps1 dosyasini YONETICI olarak
+   calistirin. Masaustunde RESTOTM-GIRIS-ADRESLERI.txt olusur.
+4. Bu dosyada yazan ve yalniz o kurulu bilgisayara ait olan adresi acin.
+   Test bilgisayarinin veya baska musteri bilgisayarinin adresini kullanmayin.
+5. Garson paneli icin adrese /garson ekleyin ve Personeller ekraninda atanmis
    garson e-posta/sifresi veya PIN'i ile girin.
-5. Adres acilmazsa rastgele firewall ayari degistirmeyin; yetkiliyi arayin.
+6. Adres acilmazsa rastgele firewall ayari degistirmeyin; yetkiliyi arayin.
 
 SORUN OLURSA YETKILIYE SOYLEYECEGINIZ 4 SEY
 -------------------------------------------

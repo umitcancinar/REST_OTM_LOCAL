@@ -30,6 +30,7 @@ if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid) {
 }
 
 $candidateSupportTools = foreach ($supportToolName in @(
+    'Get-RestOtmAccessAddresses.ps1',
     'Get-RestOtmDiagnosticBundle.ps1',
     'Repair-RestOtmHost.ps1'
 )) {
@@ -54,6 +55,11 @@ $repairToolPath = [string]$repairTool.Source
 if (-not $?) { throw 'Imzali guvenli onarim kabul testi basarisiz.' }
 & (Join-Path $repoRoot 'packaging\windows\scripts\Test-RestOtmInstallation.ps1')
 if (-not $?) { throw 'Onarim sonrasi canonical kurulum testi basarisiz.' }
+
+$addressTool = $candidateSupportTools | Where-Object Name -eq 'Get-RestOtmAccessAddresses.ps1' | Select-Object -First 1
+$addressToolPath = [string]$addressTool.Source
+& $addressToolPath
+if (-not $?) { throw 'Kurulu makine adres araci kabul testi basarisiz.' }
 
 foreach ($endpoint in @(
     'http://127.0.0.1:4100/api/health',
@@ -100,28 +106,6 @@ $reportPath = Join-Path $customerRoot ("KABUL-RAPORU-$Version.json")
     os = [Environment]::OSVersion.VersionString
     acceptedAtUtc = [DateTime]::UtcNow.ToString('o')
 } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $reportPath -Encoding UTF8
-
-$runtimeConfig = Get-Content -LiteralPath (Join-Path $env:ProgramData 'RESTOTM\config\runtime.json') -Raw | ConvertFrom-Json
-$apiChild = $runtimeConfig.children | Where-Object name -eq 'local-api' | Select-Object -First 1
-$hostname = [string]$apiChild.environment.LOCAL_LAN_HOSTNAME
-$lanAddresses = @(Get-NetIPAddress -AddressFamily IPv4 -AddressState Preferred -ErrorAction Stop |
-    Where-Object { -not $_.IPAddress.StartsWith('127.') -and -not $_.IPAddress.StartsWith('169.254.') } |
-    Select-Object -ExpandProperty IPAddress -Unique)
-$networkGuide = @(
-    'REST_OTM YEREL AG GIRIS ADRESLERI'
-    '================================'
-    ''
-    "Ana bilgisayar: http://127.0.0.1:8787"
-    "Yonetim (ayni Wi-Fi): http://$hostname`:8787"
-    "Garson (ayni Wi-Fi): http://$hostname`:8787/garson"
-    "Menu (ayni Wi-Fi): http://$hostname`:8787/menu"
-    ''
-    'IP yedek adresleri:'
-    ($lanAddresses | ForEach-Object { "- http://$_`:8787  | Garson: http://$_`:8787/garson" })
-    ''
-    'Telefon/tablet ana bilgisayarla ayni Wi-Fi aginda olmalidir.'
-) -join [Environment]::NewLine
-$networkGuide | Set-Content -LiteralPath (Join-Path $customerRoot 'YEREL-AG-GIRIS-ADRESLERI.txt') -Encoding UTF8
 
 Write-Host "MUSTERI TESLIMI HAZIR: $customerRoot" -ForegroundColor Green
 Write-Host 'Musteriye yalniz 01_MUSTERIYE_VERILECEK klasorunu verin.' -ForegroundColor Green
