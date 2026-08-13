@@ -455,9 +455,7 @@ function Set-RestOtmDirectoryAcl {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Path,
-
-        [switch]$ReadOnlyForUsers
+        [string]$Path
     )
 
     Assert-RestOtmAdministrator
@@ -467,12 +465,15 @@ function Set-RestOtmDirectoryAcl {
 
     & icacls.exe $Path '/inheritance:r' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "ACL inheritance kapatilamadi: $Path" }
-    & icacls.exe $Path '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "SYSTEM/Administrators ACL uygulanamadi: $Path" }
-
-    if ($ReadOnlyForUsers) {
-        & icacls.exe $Path '/grant:r' '*S-1-5-32-545:(OI)(CI)RX' | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "Users read-only ACL uygulanamadi: $Path" }
+    $serviceSid = ([Security.Principal.NTAccount]'NT SERVICE\RESTOTMRuntime').Translate(
+        [Security.Principal.SecurityIdentifier]
+    ).Value
+    & icacls.exe $Path '/grant:r' `
+        '*S-1-5-18:(OI)(CI)F' `
+        '*S-1-5-32-544:(OI)(CI)F' `
+        "*$serviceSid`:(OI)(CI)F" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "SYSTEM/Administrators/restricted-service ACL uygulanamadi: $Path"
     }
 }
 

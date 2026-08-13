@@ -104,6 +104,12 @@ if ($gatewayChild.environment.GATEWAY_MENU_TARGET -ne 'http://127.0.0.1:3300' -o
 }
 $postgresData = [string]$postgresChild.arguments[1]
 $backupPath = [string]$apiChild.environment.LOCAL_BACKUP_DIR
+if ($postgresChild.shutdown.type -ne 'postgres' -or
+    $postgresChild.shutdown.pg_ctl_path -ne (Join-Path $install 'postgres\bin\pg_ctl.exe') -or
+    $postgresChild.shutdown.data_directory -ne $postgresData -or
+    $postgresChild.shutdown.grace_ms -lt 5000) {
+    throw 'PostgreSQL guvenli pg_ctl kapanis contract gecersiz.'
+}
 if ($backupPath.Equals($postgresData, [StringComparison]::OrdinalIgnoreCase) -or
     $backupPath.StartsWith(($postgresData + '\'), [StringComparison]::OrdinalIgnoreCase)) {
     throw 'Yedek yolu canli PostgreSQL veri yolundan ayrilmamis.'
@@ -159,6 +165,20 @@ if ($delayedAutoStart -ne 1) {
 $recovery = (& sc.exe qfailure RESTOTMRuntime | Out-String)
 if ($LASTEXITCODE -ne 0 -or $recovery -notmatch 'RESTART') {
     throw 'RESTOTMRuntime recovery/restart politikasi dogrulanamadi.'
+}
+$serviceSidType = Get-ItemPropertyValue `
+    -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\RESTOTMRuntime' `
+    -Name 'ServiceSidType' `
+    -ErrorAction Stop
+if ($serviceSidType -ne 3) {
+    throw 'RESTOTMRuntime restricted service SID politikasi dogrulanamadi.'
+}
+$preshutdownTimeout = Get-ItemPropertyValue `
+    -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\RESTOTMRuntime' `
+    -Name 'PreshutdownTimeout' `
+    -ErrorAction Stop
+if ($preshutdownTimeout -lt 120000) {
+    throw 'RESTOTMRuntime PostgreSQL icin yeterli preshutdown suresine sahip degil.'
 }
 
 $internalPorts = @(55432, 4100, 3100, 3200, 3300, 4300)

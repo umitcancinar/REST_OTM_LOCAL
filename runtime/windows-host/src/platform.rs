@@ -1,10 +1,50 @@
 use crate::error::{HostError, Result};
+use std::path::Path;
 use std::process::{Child, Command, ExitStatus};
 
 pub struct ManagedChild {
     child: Child,
     #[cfg(windows)]
     job: windows_sys::Win32::Foundation::HANDLE,
+}
+
+/// Replaces a durable state file without first creating a window where the
+/// destination does not exist. Windows' standard `rename` does not replace an
+/// existing file, so use the native write-through primitive there.
+pub fn atomic_replace(source: &Path, destination: &Path) -> Result<()> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+        };
+
+        let source_wide: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
+        let destination_wide: Vec<u16> = destination
+            .as_os_str()
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        let result = unsafe {
+            MoveFileExW(
+                source_wide.as_ptr(),
+                destination_wide.as_ptr(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            )
+        };
+        if result == 0 {
+            return Err(HostError::io(
+                destination.display().to_string(),
+                std::io::Error::last_os_error(),
+            ));
+        }
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        std::fs::rename(source, destination)
+            .map_err(|error| HostError::io(destination.display().to_string(), error))
+    }
 }
 
 impl ManagedChild {

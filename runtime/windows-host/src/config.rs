@@ -93,6 +93,11 @@ pub enum ShutdownSpec {
     Terminate {
         grace_ms: u64,
     },
+    Postgres {
+        pg_ctl_path: PathBuf,
+        data_directory: PathBuf,
+        grace_ms: u64,
+    },
 }
 
 impl HostConfig {
@@ -150,7 +155,7 @@ impl HostConfig {
 
         let mut names = HashSet::new();
         for child in &self.children {
-            child.validate(&self.install_root, &self.network)?;
+            child.validate(&self.install_root, &self.program_data_root, &self.network)?;
             if !names.insert(child.name.as_str()) {
                 return Err(HostError::InvalidConfig(format!(
                     "duplicate child name: {}",
@@ -315,7 +320,12 @@ impl RestartPolicy {
 }
 
 impl ChildSpec {
-    fn validate(&self, install_root: &Path, network: &NetworkContract) -> Result<()> {
+    fn validate(
+        &self,
+        install_root: &Path,
+        program_data_root: &Path,
+        network: &NetworkContract,
+    ) -> Result<()> {
         if self.name.is_empty()
             || self.name.len() > 64
             || !self
@@ -415,6 +425,28 @@ impl ChildSpec {
                 if !(250..=30_000).contains(grace_ms) {
                     return Err(HostError::InvalidConfig(format!(
                         "child {} has unsafe terminate grace period",
+                        self.name
+                    )));
+                }
+            }
+            ShutdownSpec::Postgres {
+                pg_ctl_path,
+                data_directory,
+                grace_ms,
+            } => {
+                assert_path_below("PostgreSQL pg_ctl", install_root, pg_ctl_path)?;
+                assert_path_below(
+                    "PostgreSQL data directory",
+                    program_data_root,
+                    data_directory,
+                )?;
+                if self.name != "postgres"
+                    || pg_ctl_path.file_name().and_then(|name| name.to_str())
+                        != Some("pg_ctl.exe")
+                    || !(5_000..=120_000).contains(grace_ms)
+                {
+                    return Err(HostError::InvalidConfig(format!(
+                        "child {} has unsafe PostgreSQL shutdown contract",
                         self.name
                     )));
                 }

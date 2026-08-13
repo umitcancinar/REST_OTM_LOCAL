@@ -42,8 +42,9 @@ Host firewall kurali acmaz; bu installer'in sahipligindedir. Host config validat
 - beklenmeyen cikista sinirli exponential backoff;
 - kayan zaman penceresinde crash-loop tespiti ve quarantine;
 - essential child crash-loop'unda tum host'un hata ile kapanmasi; SCM recovery servisi yeniden baslatir;
-- loopback, bearer-token'li internal HTTP graceful shutdown; sure sonunda process tree force-stop;
-- gunluk NDJSON structured host logu ve atomic'e yakin structured `health.json` durumu.
+- loopback, bearer-token'li internal HTTP graceful shutdown; PostgreSQL icin `pg_ctl stop -m fast -w`; sure sonunda process tree force-stop;
+- child port readiness sirasi ve 30 saniyelik aktif probe hatasinda kontrollu yeniden baslatma;
+- gunluk NDJSON structured host logu (31 dosya/256 MiB tavan) ve write-through atomik `health.json` durumu.
 
 Host loglari executable argumanlarini, environment degerlerini veya secret payload'larini kaydetmez. Health error metinleri kontrol karakterlerinden arindirilir ve 512 karakterle sinirlanir.
 
@@ -144,22 +145,9 @@ Rust unit testleri su cekirdegi kapsar:
 
 Gercek kabul testleri Windows 11 clean VM'de ayrica kosulmalidir: SCM lifecycle, Preshutdown, Job Object process-tree kill, DPAPI LocalMachine, restrictive DACL, 15/30/60 service recovery, hard power-off, PostgreSQL crash recovery ve Authenticode.
 
-## Acik uretim blocker'lari
+## Son kabul siniri
 
-- Native provisioning kaynak backend'i tamamlandi; ancak Windows MSVC
-  derlemesi, imzali artifact ve clean Windows 11 VM'de DPAPI/DACL/rollback
-  kabul testi yok.
-- Job Object atamasi `std::process` spawn'undan hemen sonra yapiliyor. Tam process-escape engeli icin suspended `CreateProcessW` + `PROC_THREAD_ATTRIBUTE_JOB_LIST` backend'i gerekli.
-- PostgreSQL icin `pg_ctl stop` tabanli ozel graceful shutdown adapter'i eklenmeli; ornek su an timeout sonrasi job termination kullanir.
-- Child readiness probe/dependency health gate'i yok; ilk spawn dependency'nin hazir oldugunu kanitlamiyor.
-- Windows Event Log sink, log retention/ACL dogrulamasi ve disk-dolu davranisi tamamlanmadi.
-- Kod imzalama sertifikasi, release artifact'leri ve Authenticode build pipeline'i yok.
-- PostgreSQL/API/admin/waiter/menu/print/gateway gercek Windows artifact seti yok; LAN gateway executable'i henuz uretilmedi.
-- Local API'nin `/internal/runtime/shutdown` token endpoint'i ve print-agent installation/tenant provisioning contract'i tamamlanmadi.
-- `Cargo.lock`, Rust toolchain pin'i ve Windows CI dependency audit'i henuz uretilmedi.
-- Bu macOS ortaminda Rust toolchain bulunmadigi icin `cargo check/test` calistirilamadi.
-
-Bu maddeler kapanmadan crate "musteriye hazir native runtime" sayilamaz ve release manifestindeki zorunlu binary rolleri gercek artifact olarak isaretlenmemelidir.
+Kod tarafindaki native provisioning, readiness/self-heal, PostgreSQL graceful shutdown, log retention, atomik health, signed update/rollback ve diagnostic/repair contract'lari tamamlanmistir. Musteri artifact'i yine de gercek Windows MSVC ortaminda derlenmeden, ayni yayinci sertifikasi ile imzalanmadan ve temiz Windows 11 VM'de `WINDOWS_KURULUM/03_WINDOWS_KABUL` kapisini gecmeden yayinlanmaz. Bu macOS oturumunda Rust toolchain bulunmadigi icin yerel `cargo check/test` kosulamadi; Windows derleme scripti bunu zorunlu ve atlanamaz adim olarak calistirir.
 
 ## Teknik kaynaklar
 

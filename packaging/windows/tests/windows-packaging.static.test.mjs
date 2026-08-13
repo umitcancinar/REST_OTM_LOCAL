@@ -120,6 +120,42 @@ test('PowerShell firewall contract mirrors narrow TCP and mDNS inbound/outbound 
   }
 });
 
+test('Windows service and PostgreSQL use restricted recovery-safe contracts', async () => {
+  const install = await source('scripts/Install-RestOtmHost.ps1');
+  const config = await source('scripts/New-RestOtmRuntimeConfiguration.ps1');
+  const verify = await source('scripts/Test-RestOtmInstallation.ps1');
+  const common = await source('scripts/RestOtm.Windows.Common.psm1');
+  const native = await readFile(path.resolve(packagingRoot, '../../runtime/windows-host/src/native_provisioning.rs'), 'utf8');
+  assert.match(install, /sidtype RESTOTMRuntime restricted/);
+  assert.match(install, /preshutdown RESTOTMRuntime 120000/);
+  assert.match(config, /type = 'postgres'/);
+  assert.match(config, /pg_ctl_path/);
+  assert.match(native, /configure_service_contract/);
+  assert.match(native, /restart\/15000\/restart\/30000\/restart\/60000/);
+  assert.match(verify, /ServiceSidType/);
+  assert.match(verify, /PreshutdownTimeout/);
+  assert.match(common, /NT SERVICE\\RESTOTMRuntime/);
+  assert.doesNotMatch(common, /S-1-5-32-545/);
+});
+
+test('signed customer support tools repair only canonical state and redact diagnostics', async () => {
+  const diagnostic = await source('scripts/Get-RestOtmDiagnosticBundle.ps1');
+  const repair = await source('scripts/Repair-RestOtmHost.ps1');
+  const build = await readFile(path.resolve(packagingRoot, '../../WINDOWS_KURULUM/02_WINDOWS_DERLEME/ADAYI-DERLE.ps1'), 'utf8');
+  const accept = await readFile(path.resolve(packagingRoot, '../../WINDOWS_KURULUM/03_WINDOWS_KABUL/KONTROL-ET-VE-MUSTERIYE-KOPYALA.ps1'), 'utf8');
+  assert.match(diagnostic, /<license-key>/);
+  assert.match(diagnostic, /<database-url>/);
+  assert.match(diagnostic, /<redacted>/);
+  assert.doesNotMatch(diagnostic, /config\\secrets\.json.*Get-Content/);
+  assert.match(repair, /config_sha256/);
+  assert.match(repair, /secret_store_sha256/);
+  assert.match(repair, /Get-AuthenticodeSignature/);
+  assert.match(repair, /restotm-installer-bootstrap\.exe/);
+  assert.doesNotMatch(repair, /Remove-Item[\s\S]{0,80}ProgramData/);
+  assert.match(build, /Set-AuthenticodeSignature/);
+  assert.match(accept, /SignerCertificate\.Thumbprint/);
+});
+
 test('installer build is fail-fast on artifacts and signing material', async () => {
   const build = await source('scripts/Build-RestOtmInstaller.ps1');
   const common = await source('scripts/RestOtm.Windows.Common.psm1');

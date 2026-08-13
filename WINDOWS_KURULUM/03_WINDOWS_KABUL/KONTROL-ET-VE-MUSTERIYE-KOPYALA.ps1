@@ -29,8 +29,31 @@ if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid) {
     throw 'Setup Authenticode imzasi gecerli degil.'
 }
 
+$candidateSupportTools = foreach ($supportToolName in @(
+    'Get-RestOtmDiagnosticBundle.ps1',
+    'Repair-RestOtmHost.ps1'
+)) {
+    $candidateToolPath = Join-Path (Split-Path -Parent $setup) $supportToolName
+    if (-not (Test-Path -LiteralPath $candidateToolPath -PathType Leaf)) {
+        throw "Imzali destek araci aday klasorunde yok: $candidateToolPath"
+    }
+    $toolSignature = Get-AuthenticodeSignature -LiteralPath $candidateToolPath
+    if ($toolSignature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
+        $toolSignature.SignerCertificate.Thumbprint -ne $signature.SignerCertificate.Thumbprint) {
+        throw "Destek araci setup ile ayni yayinci tarafindan imzalanmamis: $candidateToolPath"
+    }
+    [pscustomobject]@{ Name = $supportToolName; Source = $candidateToolPath }
+}
+
 & (Join-Path $repoRoot 'packaging\windows\scripts\Test-RestOtmInstallation.ps1')
 if (-not $?) { throw 'Canonical kurulum testi basarisiz.' }
+
+$repairTool = $candidateSupportTools | Where-Object Name -eq 'Repair-RestOtmHost.ps1' | Select-Object -First 1
+$repairToolPath = [string]$repairTool.Source
+& $repairToolPath
+if (-not $?) { throw 'Imzali guvenli onarim kabul testi basarisiz.' }
+& (Join-Path $repoRoot 'packaging\windows\scripts\Test-RestOtmInstallation.ps1')
+if (-not $?) { throw 'Onarim sonrasi canonical kurulum testi basarisiz.' }
 
 foreach ($endpoint in @(
     'http://127.0.0.1:4100/api/health',
@@ -46,7 +69,21 @@ foreach ($endpoint in @(
 $customerRoot = Join-Path $repoRoot 'WINDOWS_KURULUM\01_MUSTERIYE_VERILECEK'
 $destination = Join-Path $customerRoot ([IO.Path]::GetFileName($setup))
 if (Test-Path -LiteralPath $destination) { throw "Musteri dosyasi zaten var; uzerine yazilmadi: $destination" }
+
+$verifiedSupportTools = foreach ($candidateTool in $candidateSupportTools) {
+    $supportDestination = Join-Path $customerRoot $candidateTool.Name
+    if (Test-Path -LiteralPath $supportDestination) {
+        throw "Musteri destek araci zaten var; uzerine yazilmadi: $supportDestination"
+    }
+    [pscustomobject]@{ Source = $candidateTool.Source; Destination = $supportDestination }
+}
+
+# Butun imzalar ve hedefler dogrulanmadan musteri klasorune tek dosya bile
+# kopyalanmaz. Boylece yarim/karisik bir teslim paketi olusmaz.
 Copy-Item -LiteralPath $setup -Destination $destination
+foreach ($tool in $verifiedSupportTools) {
+    Copy-Item -LiteralPath $tool.Source -Destination $tool.Destination
+}
 
 $hash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  $([IO.Path]::GetFileName($destination))" | Set-Content -LiteralPath "$destination.sha256" -Encoding ASCII

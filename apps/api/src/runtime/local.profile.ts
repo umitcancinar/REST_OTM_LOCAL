@@ -213,7 +213,7 @@ export function registerLocalProfile(
       stopCleanupTask();
       unsubscribeLicenseStatus?.();
       localLicenseRuntime?.stop();
-      localBackupRuntime?.stopScheduler();
+      await localBackupRuntime?.stopScheduler();
       printOutboxRuntime.stop();
       menuProjectionRuntime?.stop();
       await new Promise<void>((resolve) => socketServer.close(() => resolve()));

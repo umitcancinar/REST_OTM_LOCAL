@@ -195,7 +195,12 @@ if ($PSCmdlet.ShouldProcess($programData, 'Canonical RESTOTM runtime config, sec
                 secret_environment = $emptyEnvironment
                 depends_on = @()
                 essential = $true
-                shutdown = [ordered]@{ type = 'terminate'; grace_ms = 30000 }
+                shutdown = [ordered]@{
+                    type = 'postgres'
+                    pg_ctl_path = (Join-Path $install 'postgres\bin\pg_ctl.exe')
+                    data_directory = (Join-Path $dataRoot 'postgres')
+                    grace_ms = 30000
+                }
             },
             [ordered]@{
                 name = 'local-api'

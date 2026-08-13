@@ -23,6 +23,7 @@ import {
   type PrintJobListQuery,
   safePrintFailureCode,
 } from './print-outbox.policy';
+import { toReceiptLine } from './receipt-line';
 
 // Valid Department enum values from Prisma schema
 const VALID_DEPARTMENTS = ['KITCHEN', 'BAR', 'GRILL', 'PASTRY', 'COLD', 'CASHIER', 'PAKET', 'POS'];
@@ -651,7 +652,7 @@ export const printService = {
     const items = order.subChecks.flatMap(sc =>
       sc.items
         .filter(i => i.status !== 'CANCELLED')
-        .map(i => ({ name: i.menuItemName, quantity: i.quantity, price: i.totalPrice, notes: i.notes || undefined }))
+        .map(toReceiptLine)
     );
 
     // Tenant'ın özel çıktı tasarım ayarlarını çek
@@ -911,7 +912,7 @@ export const printService = {
     const items = order.subChecks.flatMap(sc =>
       sc.items
         .filter(i => i.status !== 'CANCELLED')
-        .map(i => ({ name: i.menuItemName, quantity: i.quantity, price: i.totalPrice, notes: i.notes || undefined }))
+        .map(toReceiptLine)
     );
 
     const tenantSettingsRaw = readTenantSettings(tenant?.settings);

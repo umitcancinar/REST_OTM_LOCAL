@@ -47,7 +47,12 @@
       "secret_environment": {},
       "depends_on": [],
       "essential": true,
-      "shutdown": { "type": "terminate", "grace_ms": 30000 }
+      "shutdown": {
+        "type": "postgres",
+        "pg_ctl_path": "C:\\Program Files\\RESTOTM\\postgres\\bin\\pg_ctl.exe",
+        "data_directory": "C:\\ProgramData\\RESTOTM\\data\\postgres",
+        "grace_ms": 30000
+      }
     },
     {
       "name": "local-api",

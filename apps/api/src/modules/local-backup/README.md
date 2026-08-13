@@ -118,7 +118,7 @@ app.use('/api/backup', createLocalBackupRouter(backups, [
 ]));
 ```
 
-Kapanış akışında `backups.stopScheduler()` çağrılır. Scheduler servis açılır
+Kapanış akışında `await backups.stopScheduler()` çağrılır. Scheduler servis açılır
 açılmaz son başarılı yedeği kontrol eder; yapılandırılmış aralık dolmuşsa
 kaçırılan günlük yedeği üretir.
 

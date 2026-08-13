@@ -1,4 +1,5 @@
 use crate::error::{HostError, Result};
+use crate::platform::atomic_replace;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
@@ -202,11 +203,10 @@ fn persist_health_file(path: &Path, bytes: &[u8]) -> Result<()> {
         .and_then(|_| file.sync_all())
         .map_err(|error| HostError::io(temporary.display().to_string(), error))?;
     drop(file);
-    if path.exists() {
-        fs::remove_file(path).map_err(|error| HostError::io(path.display().to_string(), error))?;
+    if let Err(error) = atomic_replace(&temporary, path) {
+        let _ = fs::remove_file(&temporary);
+        return Err(error);
     }
-    fs::rename(&temporary, path)
-        .map_err(|error| HostError::io(path.display().to_string(), error))?;
     Ok(())
 }
 

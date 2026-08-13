@@ -123,6 +123,7 @@ fn provision(request: &BootstrapRequest) -> Result<()> {
     validate_installer_roots(request)?;
     assert_tree_has_no_reparse_points(&request.install_root)?;
     verify_required_payload(request)?;
+    configure_service_contract()?;
 
     let config_root = request.program_data_root.join("config");
     let data_root = request.program_data_root.join("data");
@@ -238,6 +239,46 @@ fn provision(request: &BootstrapRequest) -> Result<()> {
     verify_restrictive_tree(&request.install_root)?;
     verify_restrictive_tree(&request.program_data_root)?;
     rollback.committed = true;
+    Ok(())
+}
+
+fn configure_service_contract() -> Result<()> {
+    let system_root = std::env::var_os("SystemRoot")
+        .ok_or_else(|| HostError::InvalidBootstrap("SystemRoot is unavailable".into()))?;
+    let sc = PathBuf::from(system_root).join("System32/sc.exe");
+    if !sc.is_file() {
+        return Err(HostError::InvalidBootstrap(
+            "canonical Windows service controller is missing".into(),
+        ));
+    }
+    for arguments in [
+        vec!["config", SERVICE_NAME, "start=", "delayed-auto"],
+        vec![
+            "failure",
+            SERVICE_NAME,
+            "reset=",
+            "86400",
+            "actions=",
+            "restart/15000/restart/30000/restart/60000",
+        ],
+        vec!["failureflag", SERVICE_NAME, "1"],
+        vec!["sidtype", SERVICE_NAME, "restricted"],
+        vec!["preshutdown", SERVICE_NAME, "120000"],
+    ] {
+        let status = Command::new(&sc)
+            .args(&arguments)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map_err(|error| HostError::io("configure RESTOTM Windows service", error))?;
+        if !status.success() {
+            return Err(HostError::InvalidBootstrap(format!(
+                "Windows service hardening command failed: {}",
+                arguments[0]
+            )));
+        }
+    }
     Ok(())
 }
 
@@ -843,7 +884,11 @@ fn build_config(
                 working_directory: install.join("postgres/bin"),
                 arguments: vec!["-D".into(), data_root.join("postgres").display().to_string(), "-p".into(), request.postgres_port.to_string(), "-h".into(), "127.0.0.1".into()],
                 environment: empty.clone(), file_environment: empty.clone(), secret_environment: empty.clone(), depends_on: vec![], essential: true,
-                shutdown: ShutdownSpec::Terminate { grace_ms: 30_000 },
+                shutdown: ShutdownSpec::Postgres {
+                    pg_ctl_path: install.join("postgres/bin/pg_ctl.exe"),
+                    data_directory: data_root.join("postgres"),
+                    grace_ms: 30_000,
+                },
             },
             ChildSpec {
                 name: "local-api".into(), executable: install.join("api/restotm-api.exe"), working_directory: install.join("api"), arguments: vec![],

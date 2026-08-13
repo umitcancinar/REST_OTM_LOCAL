@@ -15,6 +15,15 @@ use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
+const ACTIVE_PROBE_INTERVAL: Duration = Duration::from_secs(5);
+const ACTIVE_PROBE_FAILURE_THRESHOLD: u32 = 6;
+const READINESS_CONNECT_TIMEOUT: Duration = Duration::from_millis(750);
+
+#[derive(Clone, Copy)]
+struct ReadinessTarget {
+    address: SocketAddr,
+    startup_timeout: Duration,
+}
 
 pub struct RunningSupervisor {
     stop: Arc<AtomicBool>,
@@ -58,6 +67,7 @@ impl RunningSupervisor {
 
         for index in config.startup_order()? {
             let spec = config.children[index].clone();
+            let readiness = readiness_target(&config, &spec);
             health.update_child(
                 &spec.name,
                 ChildState::Starting,
@@ -67,7 +77,12 @@ impl RunningSupervisor {
                 None,
                 false,
             )?;
-            let initial_child = match spawn_child(&spec, secrets.as_ref()) {
+            let initial_child = match spawn_ready_child(
+                &spec,
+                secrets.as_ref(),
+                readiness,
+                stop.as_ref(),
+            ) {
                 Ok(child) => child,
                 Err(cause) => {
                     let message = cause.to_string();
@@ -116,6 +131,7 @@ impl RunningSupervisor {
                     worker_health,
                     worker_stop,
                     worker_fatal,
+                    readiness,
                 )
             }));
         }
@@ -187,9 +203,12 @@ fn worker_loop(
     health: HealthRegistry,
     stop: Arc<AtomicBool>,
     fatal: Sender<HostError>,
+    readiness: Option<ReadinessTarget>,
 ) {
     let mut tracker = CrashTracker::new(policy);
     let mut started_at = Instant::now();
+    let mut last_active_probe = Instant::now();
+    let mut consecutive_probe_failures = 0_u32;
 
     loop {
         if stop.load(Ordering::SeqCst) {
@@ -223,6 +242,50 @@ fn worker_loop(
 
         match child.try_wait() {
             Ok(None) => {
+                if let Some(target) = readiness {
+                    if last_active_probe.elapsed() >= ACTIVE_PROBE_INTERVAL {
+                        last_active_probe = Instant::now();
+                        if tcp_endpoint_ready(target.address) {
+                            consecutive_probe_failures = 0;
+                        } else {
+                            consecutive_probe_failures =
+                                consecutive_probe_failures.saturating_add(1);
+                            warn!(
+                                event = "child_active_probe_failed",
+                                child = %spec.name,
+                                address = %target.address,
+                                consecutive_failures = consecutive_probe_failures,
+                                "child process is alive but its loopback endpoint is unavailable"
+                            );
+                            if consecutive_probe_failures >= ACTIVE_PROBE_FAILURE_THRESHOLD {
+                                update_or_fail(
+                                    &health,
+                                    &fatal,
+                                    &stop,
+                                    &spec.name,
+                                    ChildState::Failed,
+                                    Some(child.id()),
+                                    0,
+                                    None,
+                                    Some(format!(
+                                        "loopback readiness probe failed {} consecutive times",
+                                        consecutive_probe_failures
+                                    )),
+                                    false,
+                                );
+                                if let Err(cause) = child.terminate_tree() {
+                                    stop.store(true, Ordering::SeqCst);
+                                    let _ = fatal.send(HostError::ChildProcess {
+                                        name: spec.name.clone(),
+                                        message: cause.to_string(),
+                                    });
+                                    return;
+                                }
+                                let _ = child.wait();
+                            }
+                        }
+                    }
+                }
                 thread::sleep(POLL_INTERVAL);
                 continue;
             }
@@ -286,11 +349,13 @@ fn worker_loop(
             None,
             false,
         );
-        match spawn_child(&spec, secrets.as_ref()) {
+        match spawn_ready_child(&spec, secrets.as_ref(), readiness, stop.as_ref()) {
             Ok(new_child) => {
                 let pid = new_child.id();
                 child = new_child;
                 started_at = Instant::now();
+                last_active_probe = Instant::now();
+                consecutive_probe_failures = 0;
                 update_or_fail(
                     &health,
                     &fatal,
@@ -332,11 +397,25 @@ fn worker_loop(
                 if !sleep_interruptibly(decision.delay, &stop) {
                     continue;
                 }
-                match spawn_child(&spec, secrets.as_ref()) {
+                match spawn_ready_child(&spec, secrets.as_ref(), readiness, stop.as_ref()) {
                     Ok(new_child) => {
                         let pid = new_child.id();
                         child = new_child;
                         started_at = Instant::now();
+                        last_active_probe = Instant::now();
+                        consecutive_probe_failures = 0;
+                        update_or_fail(
+                            &health,
+                            &fatal,
+                            &stop,
+                            &spec.name,
+                            ChildState::Running,
+                            Some(pid),
+                            0,
+                            None,
+                            None,
+                            false,
+                        );
                     }
                     Err(second_error) => {
                         if spec.essential {
@@ -408,6 +487,84 @@ fn spawn_child(spec: &ChildSpec, secrets: &dyn SecretProvider) -> Result<Managed
     })
 }
 
+fn spawn_ready_child(
+    spec: &ChildSpec,
+    secrets: &dyn SecretProvider,
+    readiness: Option<ReadinessTarget>,
+    stop: &AtomicBool,
+) -> Result<ManagedChild> {
+    let mut child = spawn_child(spec, secrets)?;
+    if let Some(target) = readiness {
+        let deadline = Instant::now() + target.startup_timeout;
+        let mut consecutive_ready_checks = 0_u8;
+        loop {
+            if stop.load(Ordering::SeqCst) {
+                stop_child(spec, &mut child, secrets);
+                return Err(HostError::ChildProcess {
+                    name: spec.name.clone(),
+                    message: "startup was cancelled".into(),
+                });
+            }
+            match child.try_wait()? {
+                Some(status) => {
+                    return Err(HostError::ChildProcess {
+                        name: spec.name.clone(),
+                        message: format!(
+                            "process exited before its loopback endpoint became ready: {status}"
+                        ),
+                    });
+                }
+                None if tcp_endpoint_ready(target.address) => {
+                    consecutive_ready_checks = consecutive_ready_checks.saturating_add(1);
+                    if consecutive_ready_checks >= 3 {
+                        return Ok(child);
+                    }
+                    thread::sleep(POLL_INTERVAL);
+                }
+                None if Instant::now() < deadline => {
+                    consecutive_ready_checks = 0;
+                    thread::sleep(POLL_INTERVAL);
+                }
+                None => {
+                    stop_child(spec, &mut child, secrets);
+                    return Err(HostError::ChildProcess {
+                        name: spec.name.clone(),
+                        message: format!(
+                            "loopback endpoint {} did not become ready within {} seconds",
+                            target.address,
+                            target.startup_timeout.as_secs()
+                        ),
+                    });
+                }
+            }
+        }
+    }
+    Ok(child)
+}
+
+fn readiness_target(config: &HostConfig, spec: &ChildSpec) -> Option<ReadinessTarget> {
+    let (port, startup_seconds) = match spec.name.as_str() {
+        "postgres" => (config.network.postgres.port, 120),
+        "local-api" => (config.network.api.port, 300),
+        "admin-ui" => (config.network.admin.port, 180),
+        "waiter-ui" => (config.network.waiter.port, 180),
+        "menu-ui" => (config.network.menu.port, 180),
+        "lan-gateway" => (config.network.gateway.port, 60),
+        // The print agent is a WebSocket client and intentionally has no
+        // listening socket. Process liveness remains its health contract.
+        "print-agent" => return None,
+        _ => return None,
+    };
+    Some(ReadinessTarget {
+        address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port),
+        startup_timeout: Duration::from_secs(startup_seconds),
+    })
+}
+
+fn tcp_endpoint_ready(address: SocketAddr) -> bool {
+    TcpStream::connect_timeout(&address, READINESS_CONNECT_TIMEOUT).is_ok()
+}
+
 fn stop_child(spec: &ChildSpec, child: &mut ManagedChild, secrets: &dyn SecretProvider) {
     match &spec.shutdown {
         ShutdownSpec::Http {
@@ -438,6 +595,50 @@ fn stop_child(spec: &ChildSpec, child: &mut ManagedChild, secrets: &dyn SecretPr
                     return;
                 }
                 thread::sleep(POLL_INTERVAL);
+            }
+        }
+        ShutdownSpec::Postgres {
+            pg_ctl_path,
+            data_directory,
+            grace_ms,
+        } => {
+            let timeout_seconds = ((*grace_ms + 999) / 1_000).max(5);
+            let result = Command::new(pg_ctl_path)
+                .arg("stop")
+                .arg("-D")
+                .arg(data_directory)
+                .arg("-m")
+                .arg("fast")
+                .arg("-w")
+                .arg("-t")
+                .arg(timeout_seconds.to_string())
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+            match result {
+                Ok(status) if status.success() => {
+                    let deadline = Instant::now() + Duration::from_millis(*grace_ms);
+                    while Instant::now() < deadline {
+                        if child.try_wait().ok().flatten().is_some() {
+                            info!(event = "postgres_stopped", child = %spec.name, "PostgreSQL stopped with pg_ctl fast mode");
+                            return;
+                        }
+                        thread::sleep(POLL_INTERVAL);
+                    }
+                }
+                Ok(status) => warn!(
+                    event = "postgres_graceful_shutdown_failed",
+                    child = %spec.name,
+                    ?status,
+                    "pg_ctl rejected the shutdown request; falling back to job termination"
+                ),
+                Err(cause) => warn!(
+                    event = "postgres_graceful_shutdown_failed",
+                    child = %spec.name,
+                    error = %cause,
+                    "pg_ctl could not be started; falling back to job termination"
+                ),
             }
         }
     }

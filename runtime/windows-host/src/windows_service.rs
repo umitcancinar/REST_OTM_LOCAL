@@ -5,6 +5,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::thread;
 use std::time::Duration;
 use windows_service::service::{
     ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus,
@@ -71,11 +72,53 @@ fn run_service() -> Result<()> {
         1,
         Duration::from_secs(30),
     ))?;
-
     let config_path = CONFIG_PATH
         .get()
         .ok_or_else(|| HostError::InvalidConfig("service config path is missing".into()))?;
-    let runtime = match RuntimeInstance::start(config_path, stop) {
+
+    // Child readiness is deliberately strict and PostgreSQL recovery can take
+    // longer than SCM's initial wait hint. Keep advancing the checkpoint while
+    // startup is in progress so Windows never mistakes a healthy recovery for
+    // a hung service.
+    let startup_reporting = Arc::new(AtomicBool::new(true));
+    let reporter_running = startup_reporting.clone();
+    let reporter_stop = stop.clone();
+    let reporter_status = status.clone();
+    let startup_reporter = thread::spawn(move || {
+        let mut checkpoint = 2u32;
+        while reporter_running.load(Ordering::SeqCst)
+            && !reporter_stop.load(Ordering::SeqCst)
+        {
+            thread::park_timeout(Duration::from_secs(5));
+            if !reporter_running.load(Ordering::SeqCst)
+                || reporter_stop.load(Ordering::SeqCst)
+            {
+                break;
+            }
+            if reporter_status
+                .set_service_status(service_status(
+                    ServiceState::StartPending,
+                    ServiceControlAccept::empty(),
+                    ServiceExitCode::Win32(0),
+                    checkpoint,
+                    Duration::from_secs(30),
+                ))
+                .is_err()
+            {
+                break;
+            }
+            checkpoint = checkpoint.saturating_add(1);
+        }
+    });
+
+    let runtime_result = RuntimeInstance::start(config_path, stop);
+    startup_reporting.store(false, Ordering::SeqCst);
+    startup_reporter.thread().unpark();
+    startup_reporter.join().map_err(|_| {
+        HostError::InvalidConfig("service startup status reporter panicked".into())
+    })?;
+
+    let runtime = match runtime_result {
         Ok(runtime) => runtime,
         Err(error) => {
             status.set_service_status(service_status(

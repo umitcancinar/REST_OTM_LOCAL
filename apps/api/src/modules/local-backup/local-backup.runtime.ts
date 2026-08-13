@@ -734,6 +734,8 @@ export class LocalBackupRuntime {
     cloudLastError: null,
   };
   private scheduler?: NodeJS.Timeout;
+  private schedulerTick?: Promise<void>;
+  private schedulerStopping = false;
   private lastSuccess: BackupManifest | null = null;
   private lastError: { code: string; occurredAt: string } | null = null;
 
@@ -1432,8 +1434,15 @@ export class LocalBackupRuntime {
 
   startScheduler(): void {
     if (this.scheduler) return;
+    this.schedulerStopping = false;
     const tick = (): void => {
-      void this.runMaintenanceTick().catch(() => undefined);
+      if (this.schedulerStopping || this.schedulerTick) return;
+      const maintenance = this.runMaintenanceTick()
+        .catch(() => undefined)
+        .finally(() => {
+          if (this.schedulerTick === maintenance) this.schedulerTick = undefined;
+        });
+      this.schedulerTick = maintenance;
     };
     tick();
     this.scheduler = setInterval(tick, this.schedulerPollMs);
@@ -1491,10 +1500,13 @@ export class LocalBackupRuntime {
     }
   }
 
-  stopScheduler(): void {
-    if (!this.scheduler) return;
-    clearInterval(this.scheduler);
-    this.scheduler = undefined;
+  async stopScheduler(): Promise<void> {
+    this.schedulerStopping = true;
+    if (this.scheduler) {
+      clearInterval(this.scheduler);
+      this.scheduler = undefined;
+    }
+    await this.schedulerTick;
   }
 
   private async runScheduledIfDue(): Promise<void> {

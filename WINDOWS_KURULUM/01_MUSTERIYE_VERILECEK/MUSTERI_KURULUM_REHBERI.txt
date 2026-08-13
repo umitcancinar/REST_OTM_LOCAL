@@ -63,7 +63,21 @@ DIGER TELEFON/TABLETLER
 
 SORUN OLURSA YETKILIYE SOYLEYECEGINIZ 4 SEY
 -------------------------------------------
-1. Ekranda yazan hata mesaji.
-2. Hatanin oldugu saat.
-3. Bilgisayarin yeniden baslatilip baslatilmadigi.
-4. Internetin ve ayni Wi-Fi'nin calisip calismadigi.
+1. Once bilgisayari bir kez yeniden baslatin ve 5 dakika bekleyin.
+2. Sorun suruyorsa Repair-RestOtmHost.ps1 dosyasina sag tiklayin ve
+   "PowerShell ile calistir" secenegini YONETICI olarak acin.
+3. Yesil "ONARIM TAMAMLANDI" mesaji cikarsa tekrar deneyin.
+4. Sorun suruyorsa Get-RestOtmDiagnosticBundle.ps1 dosyasini ayni sekilde
+   yonetici olarak calistirin.
+5. Masaustunde olusan RESTOTM-TANI-....zip dosyasini yetkiliye gonderin.
+6. Bu ZIP lisans anahtari, e-posta, parola, token ve veritabani baglanti
+   bilgisini otomatik ayiklar. ProgramData klasorunu kesinlikle gondermeyin.
+
+ASLA YAPMAYIN
+-------------
+- Program Files\RESTOTM veya ProgramData\RESTOTM icinden dosya silmeyin.
+- Windows servisleri ekranindan RESTOTMRuntime ayarlarini degistirmeyin.
+- 55432, 4100, 3100, 3200, 3300 veya 4300 portlarini firewall'da acmayin.
+- Internetten bulunan "registry temizleme / hizlandirma" araclarini bu
+  bilgisayarda calistirmayin.
+- Lisans anahtarini veya ProgramData klasorunu WhatsApp grubuna atmayin.

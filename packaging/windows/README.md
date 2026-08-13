@@ -13,7 +13,7 @@ Bu klasor, musteri bilgisayarinda calisacak RESTOTM yerel runtime'i icin guvenli
 | QR Menü UI | `127.0.0.1:3300` | Yok |
 | Print agent | `127.0.0.1:4300` | Yok |
 | LAN gateway | `0.0.0.0:8787` | Yalniz Windows `Private` profil + `LocalSubnet` |
-| Program binary'leri | `%ProgramFiles%\RESTOTM` | Users: read/execute |
+| Program binary'leri | `%ProgramFiles%\RESTOTM` | Yalniz SYSTEM + Administrators + restricted service SID |
 | Canli veri | `%ProgramData%\RESTOTM\data` | SYSTEM + Administrators |
 | Config ve DPAPI secret'lari | `%ProgramData%\RESTOTM\config` | SYSTEM + Administrators |
 | Loglar | `%ProgramData%\RESTOTM\logs` | SYSTEM + Administrators |
@@ -30,10 +30,14 @@ Yerel veri icin PostgreSQL secimi bilincli: ayni anda kasa, garson, mutfak/print
 2. Binary'ler salt-okunur Program Files altina yazilir.
 3. MSI, imzali `restotm-installer-bootstrap.exe` yardimcisini deferred/LocalSystem olarak calistirir.
 4. Yardimci izinli yollar disina cikmadan klasorleri ve ACL'leri kurar; her kurulum icin kriptografik secret'lar uretir ve makine kapsamli DPAPI ile korur.
-5. `RESTOTMRuntime` servisi `Automatic (Delayed Start)` olarak acilir. Ilk uc arizada 15 saniye gecikmeyle yeniden baslatilir; hata sayaci bir gunde sifirlanir.
-6. Runtime PostgreSQL, API, admin, garson, print, lisans yoklama, backup ve tek LAN gateway'i supervise eder.
+5. `RESTOTMRuntime` servisi `Automatic (Delayed Start)` olarak acilir. Ilk uc arizada 15/30/60 saniyede yeniden baslatilir; restricted service SID ve 120 saniye preshutdown suresi zorunludur.
+6. Runtime PostgreSQL, API, admin, garson, print, lisans yoklama, backup ve tek LAN gateway'i supervise eder. Bagimli servis bir port acmadan siradaki servis baslamaz; calisir gorunen ama portu 30 saniye boyunca cevap vermeyen child otomatik yeniden baslatilir.
+7. PostgreSQL Windows kapanisinda `pg_ctl stop -m fast -w` ile guvenli kapatilir; yalniz bu basarisiz olursa process-tree sonlandirma uygulanir.
+8. Host loglari en fazla 31 dosya/256 MiB tutulur; `health.json` Windows'ta write-through atomik replace ile yazilir.
 
 PowerShell betikleri ayni politikayi kurulum oncesi kontrol, operasyonel repair ve Windows CI dogrulamasi icin ifade eder. Musteri kurulumu `ExecutionPolicy Bypass`, internetten script indirme veya kaynak kod calistirma kullanmaz. Uretim yolunda native ve imzali bootstrap yardimcisi zorunludur.
+
+Teslim klasorunde setup ile ayni sertifikayla Authenticode imzalanmis iki destek araci bulunur. `Repair-RestOtmHost.ps1` veri/secret silmeden receipt, native bootstrap, ACL, servis recovery, dar firewall ve canli child sagligini dogrular/onarir. `Get-RestOtmDiagnosticBundle.ps1` yalniz sinirli servis/port/firewall/hash/log bilgisini toplar; lisans, e-posta, bearer, parola, token ve DB URL degerlerini ZIP olusmadan once redakte eder.
 
 ## Secret ve lisans siniri
 
@@ -114,19 +118,9 @@ WiX v4/Burn secildi; Inno Setup pilotu eklenmedi. Windows Service, transactional
 | Yedek | Backup + bozuk dosya + restore drill | Hash/AEAD/restore testi ve UI alarmi |
 | Elektrik kesintisi | VM hard power-off | PostgreSQL recovery sonrasi acik hesaplar tutarli |
 
-## Su anki acik blocker'lar
+## Son fiziksel Windows kabul kapisi
 
-- Native `RESTOTMRuntime` kaynagi henuz Windows'ta derlenmedi, imzalanmadi ve clean-VM'de test edilmedi.
-- Native bootstrap kaynak backend'i ve strict capability probe'u mevcut; fakat Windows MSVC derlemesi ile clean-VM DPAPI/DACL/reparse/rollback kabul testi yapilmadi. Bu nedenle release contract'i `production_ready=true` olamaz.
-- Sabitlenmis ve lisans kosullari dogrulanmis PostgreSQL Windows binary dagitimi yok.
-- API/admin/waiter/menu/print ve LAN gateway Windows release artifact'leri ile tamamlanmis SHA-256 manifest yok.
-- Local API `/internal/runtime/shutdown` bearer-token endpoint'i ve print-agent installation/tenant provisioning sozlesmesi tamamlanmadi.
-- EV/OV Authenticode sertifikasi ve guvenli CI signing ortami yok.
-- Windows 11 clean-install/upgrade/uninstall/power-loss test matrisi kosulmadi.
-- Gercek harici yedek hedefi ve restore drill uygulamasi runtime tarafinda tamamlanmadi.
-- TPM/CNG cihaz anahtari ve imzali update zinciri tamamlanmadi.
-
-Bu blocker'lar kapanmadan `Build-RestOtmInstaller.ps1` ya dogrudan durur ya da gereken release sozlesmesini bulamadigi icin hata verir; placeholder installer cikarmak tasarim geregi mumkun degildir.
+Kaynak, paketleme, self-heal, imzali update ve sifreli yerel/harici/bulut yedek contract'i hazirdir. Yine de musteri setup'i yalniz gercek Windows x64 makinede Rust MSVC + resmi Node/PostgreSQL artifact'leriyle derlenip Authenticode imzalandiktan ve temiz Windows 11 VM kabul scripti (kurulum, reboot, servis, port, firewall, DPAPI, repair ve endpoint testleri) gectikten sonra teslim edilir. Bu kosullar yoksa build/kabul scriptleri fail-closed durur ve `01_MUSTERIYE_VERILECEK` klasorune setup kopyalamaz.
 
 ## Kaynaklar
 

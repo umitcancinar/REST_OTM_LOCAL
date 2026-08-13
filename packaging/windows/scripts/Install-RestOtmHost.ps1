@@ -55,7 +55,9 @@ if ($PSCmdlet.ShouldProcess($ProgramDataRoot, 'RESTOTM host yapilandirmasini uyg
         -LicenseServerUrl $LicenseServerUrl `
         -ProductVersion ([string]$installedManifest.productVersion) | Out-Null
 
-    Set-RestOtmDirectoryAcl -Path $install -ReadOnlyForUsers
+    # Browser clients consume the product over the LAN gateway; interactive
+    # Windows users never need direct read access to the signed payload.
+    Set-RestOtmDirectoryAcl -Path $install
 
     $service = Get-Service -Name 'RESTOTMRuntime' -ErrorAction SilentlyContinue
     if ($null -eq $service) {
@@ -74,6 +76,10 @@ if ($PSCmdlet.ShouldProcess($ProgramDataRoot, 'RESTOTM host yapilandirmasini uyg
     if ($LASTEXITCODE -ne 0) { throw 'Servis failure recovery yapilandirilamadi.' }
     & sc.exe failureflag RESTOTMRuntime 1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Servis non-crash failure recovery etkinlestirilemedi.' }
+    & sc.exe sidtype RESTOTMRuntime restricted | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Servis restricted SID modu uygulanamadi.' }
+    & sc.exe preshutdown RESTOTMRuntime 120000 | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Servis guvenli PostgreSQL kapanis suresi uygulanamadi.' }
 
     $firewallContracts = @(
         [ordered]@{

@@ -134,8 +134,13 @@ try {
         )
         Run $corepack @('pnpm', 'run', 'test:release')
         Run $corepack @('pnpm', 'run', 'test:windows')
+        & (Join-Path $repoRoot 'packaging\windows\scripts\Test-RestOtmPowerShellSyntax.ps1')
+        if (-not $?) { throw 'PowerShell parser testi basarisiz.' }
+        & (Join-Path $repoRoot 'packaging\windows\scripts\Test-RestOtmCanonicalContract.ps1')
+        if (-not $?) { throw 'Windows canonical contract testi basarisiz.' }
         Run $cargo @('generate-lockfile', '--manifest-path', 'runtime/windows-host/Cargo.toml')
-        Run $cargo @('test', '--manifest-path', 'runtime/windows-host/Cargo.toml', '--locked')
+        Run $cargo @('check', '--manifest-path', 'runtime/windows-host/Cargo.toml', '--all-targets', '--locked')
+        Run $cargo @('test', '--manifest-path', 'runtime/windows-host/Cargo.toml', '--all-targets', '--locked')
         Run $cargo @('build', '--manifest-path', 'runtime/windows-host/Cargo.toml', '--release', '--locked')
     } finally {
         Pop-Location
@@ -192,6 +197,22 @@ try {
 
     $bundle = Join-Path $candidateVersionRoot ("RESTOTM-Setup-$Version-x64.exe")
     if (-not (Test-Path -LiteralPath $bundle -PathType Leaf)) { throw "Imzali aday setup eksik: $bundle" }
+    foreach ($supportTool in @(
+        'Get-RestOtmDiagnosticBundle.ps1',
+        'Repair-RestOtmHost.ps1'
+    )) {
+        $sourceTool = Join-Path $repoRoot "packaging\windows\scripts\$supportTool"
+        $destinationTool = Join-Path $candidateVersionRoot $supportTool
+        Copy-Item -LiteralPath $sourceTool -Destination $destinationTool
+        $toolSignature = Set-AuthenticodeSignature `
+            -LiteralPath $destinationTool `
+            -Certificate $certificate `
+            -TimestampServer $TimestampUrl `
+            -HashAlgorithm SHA256
+        if ($toolSignature.Status -ne [Management.Automation.SignatureStatus]::Valid) {
+            throw "Destek araci Authenticode imzalanamadi: $destinationTool status=$($toolSignature.Status)"
+        }
+    }
     $hash = (Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash.ToLowerInvariant()
     "$hash  $([IO.Path]::GetFileName($bundle))" | Set-Content -LiteralPath "$bundle.sha256" -Encoding ASCII
     Write-Host "`nADAY HAZIR: $bundle" -ForegroundColor Green

@@ -54,6 +54,30 @@ test('supervisor has crash-loop, graceful stop and job-tree contracts', async ()
   assert.match(platform, /JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE/);
   assert.match(supervisor, /external_stop/);
   assert.match(supervisor, /monitor_stop/);
+  assert.match(supervisor, /ACTIVE_PROBE_FAILURE_THRESHOLD/);
+  assert.match(supervisor, /tcp_endpoint_ready/);
+  assert.match(supervisor, /pg_ctl/);
+  assert.match(supervisor, /\.arg\("fast"\)/);
+});
+
+test('Windows SCM startup remains alive during strict child readiness recovery', async () => {
+  const service = await read('src/windows_service.rs');
+  assert.match(service, /ServiceState::StartPending/);
+  assert.match(service, /startup_reporting/);
+  assert.match(service, /checkpoint = checkpoint\.saturating_add\(1\)/);
+  assert.match(service, /thread::park_timeout\(Duration::from_secs\(5\)\)/);
+  assert.match(service, /Duration::from_secs\(30\)/);
+});
+
+test('health file replacement and production log limits are durable', async () => {
+  const health = await read('src/health.rs');
+  const platform = await read('src/platform.rs');
+  const logging = await read('src/logging.rs');
+  assert.match(health, /atomic_replace/);
+  assert.match(platform, /MOVEFILE_REPLACE_EXISTING \| MOVEFILE_WRITE_THROUGH/);
+  assert.match(logging, /MAX_LOG_FILES/);
+  assert.match(logging, /MAX_TOTAL_LOG_BYTES/);
+  assert.doesNotMatch(logging, /try_from_env/);
 });
 
 test('native updater independently reverifies Ed25519 envelope, canonical manifest and artifacts', async () => {
@@ -129,6 +153,9 @@ test('native provisioning is DPAPI LocalMachine, restrictive-DACL and reparse fa
   assert.match(native, /SetFileSecurityW/);
   assert.match(native, /LookupAccountNameW/);
   assert.match(native, /NT SERVICE\\\\\{SERVICE_NAME\}/);
+  assert.match(native, /configure_service_contract/);
+  assert.match(native, /restart\/15000\/restart\/30000\/restart\/60000/);
+  assert.match(native, /"preshutdown", SERVICE_NAME, "120000"/);
   assert.match(native, /MOVEFILE_WRITE_THROUGH/);
   assert.match(native, /sync_all/);
   assert.match(native, /struct Rollback/);
