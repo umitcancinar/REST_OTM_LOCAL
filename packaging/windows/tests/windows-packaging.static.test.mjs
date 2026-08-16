@@ -126,8 +126,11 @@ test('Windows service and PostgreSQL use restricted recovery-safe contracts', as
   const verify = await source('scripts/Test-RestOtmInstallation.ps1');
   const common = await source('scripts/RestOtm.Windows.Common.psm1');
   const native = await readFile(path.resolve(packagingRoot, '../../runtime/windows-host/src/native_provisioning.rs'), 'utf8');
-  assert.match(install, /sidtype RESTOTMRuntime restricted/);
-  assert.match(install, /preshutdown RESTOTMRuntime 120000/);
+  assert.match(install, /sidtype RESTOTMRuntime unrestricted/);
+  // sc.exe'nin preshutdown komutu yok; sure servisin PreshutdownTimeout
+  // registry degerine yazilir, dogrulama da orayi okur.
+  assert.match(install, /PreshutdownTimeout' -Value 120000 -Type DWord/);
+  assert.match(native, /PreshutdownTimeout/);
   assert.match(config, /type = 'postgres'/);
   assert.match(config, /pg_ctl_path/);
   assert.match(native, /configure_service_contract/);

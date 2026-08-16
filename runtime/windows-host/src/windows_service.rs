@@ -30,7 +30,34 @@ pub fn run_dispatcher(config_path: PathBuf) -> Result<()> {
 
 fn service_main(_arguments: Vec<OsString>) {
     if let Err(error) = run_service() {
+        report_fatal_startup(&error);
         eprintln!("RESTOTM runtime service failed: {error}");
+    }
+}
+
+/// Servis olarak calisirken stderr hicbir yere gitmez ve baslangic hatasi
+/// tracing baslatilmadan once olusabilir. Boyle bir durumda servis sessizce
+/// durur ve ne kurulum ne de destek sebebi gorebilir. Hatayi ProgramData
+/// altindaki kalici bir dosyaya yaziyoruz.
+fn report_fatal_startup(error: &HostError) {
+    use std::io::Write;
+
+    let Some(config_path) = CONFIG_PATH.get() else {
+        return;
+    };
+    let Some(data_root) = config_path.parent().and_then(|parent| parent.parent()) else {
+        return;
+    };
+    let directory = data_root.join("logs");
+    if std::fs::create_dir_all(&directory).is_err() {
+        return;
+    }
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(directory.join("service-fatal.log"))
+    {
+        let _ = writeln!(file, "{error}");
     }
 }
 

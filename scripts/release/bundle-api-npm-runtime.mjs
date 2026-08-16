@@ -43,16 +43,42 @@ function assertInside(candidate, root, label) {
   return relative;
 }
 
+/// Gercek paket koku, `node_modules` altinda paket adiyla biten dizindir.
+/// Bazi paketler alt klasorlerine de ayni `name` alanini tasiyan bir
+/// package.json koyar (engine.io-parser build/cjs icine
+/// {"name":"engine.io-parser","type":"commonjs"} koyar). Ada bakip duran bir
+/// arama bu alt klasoru kok sanir ve paketin asil package.json'i kopyalanmaz;
+/// Node da modulu cozemez.
+function isPackageRootDirectory(directory, expectedName) {
+  const expected = expectedName.split('/');
+  const parts = directory.split(path.sep).filter(Boolean);
+  if (parts.length <= expected.length) return false;
+  const tail = parts.slice(-expected.length);
+  if (tail.join('/') !== expected.join('/')) return false;
+  return parts[parts.length - expected.length - 1] === 'node_modules';
+}
+
 async function packageRootFromEntry(entry, expectedName) {
   let current = path.dirname(await realpath(entry));
+  let fallback = null;
   while (true) {
     const packagePath = path.join(current, 'package.json');
     try {
       const parsed = JSON.parse(await readFile(packagePath, 'utf8'));
-      if (parsed.name === expectedName) return { root: current, manifest: parsed };
+      if (parsed.name === expectedName) {
+        if (isPackageRootDirectory(current, expectedName)) {
+          return { root: current, manifest: parsed };
+        }
+        // node_modules disinda cozumlenen paketler (workspace linkleri) icin
+        // ada gore eslesen en ustteki adayi yedekte tutuyoruz.
+        fallback = { root: current, manifest: parsed };
+      }
     } catch {}
     const parent = path.dirname(current);
-    if (parent === current) throw new Error(`Paket koku bulunamadi: ${expectedName}`);
+    if (parent === current) {
+      if (fallback) return fallback;
+      throw new Error(`Paket koku bulunamadi: ${expectedName}`);
+    }
     current = parent;
   }
 }

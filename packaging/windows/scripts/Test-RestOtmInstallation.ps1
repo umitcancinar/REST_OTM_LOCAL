@@ -166,12 +166,16 @@ $recovery = (& sc.exe qfailure RESTOTMRuntime | Out-String)
 if ($LASTEXITCODE -ne 0 -or $recovery -notmatch 'RESTART') {
     throw 'RESTOTMRuntime recovery/restart politikasi dogrulanamadi.'
 }
+# Servisin kendi SID'i olmali (1 = unrestricted): dosya ACL politikasi
+# NT SERVICE\RESTOTMRuntime uzerine kuruludur. 3 (write-restricted) calisma
+# zamaniyla uyumsuz oldugu icin kullanilmaz; yalitim, yonetici olmayan servis
+# hesabi ve dar ACL'lerle saglanir.
 $serviceSidType = Get-ItemPropertyValue `
     -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\RESTOTMRuntime' `
     -Name 'ServiceSidType' `
     -ErrorAction Stop
-if ($serviceSidType -ne 3) {
-    throw 'RESTOTMRuntime restricted service SID politikasi dogrulanamadi.'
+if ($serviceSidType -ne 1) {
+    throw 'RESTOTMRuntime servis SID politikasi dogrulanamadi.'
 }
 $preshutdownTimeout = Get-ItemPropertyValue `
     -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\RESTOTMRuntime' `

@@ -57,11 +57,18 @@
                                   RemotePort="5353"
                                   Outbound="yes"
                                   IgnoreFailure="no" />
+      <!-- PostgreSQL sunucusu, guvenlik geregi sistem yoneticisi haklarina sahip
+           bir kullanici tarafindan calistirilmayi reddeder. Supervisor cocuk
+           surecleri kendi token'iyla baslattigi icin servis LocalSystem olamaz.
+           NetworkService yonetici degildir, dis aga (lisans sunucusu) cikabilir
+           ve dosya erisimi zaten restricted service SID'e verilen ACL uzerinden
+           saglanir. Bu ayni zamanda en az yetki ilkesine uyar. -->
       <ServiceInstall Id="RuntimeServiceInstall"
                       Name="RESTOTMRuntime"
                       DisplayName="RESTOTM Runtime Service"
                       Description="RESTOTM local API, UI, PostgreSQL, print, license, backup and LAN gateway supervisor"
                       Type="ownProcess"
+                      Account="NT AUTHORITY\NetworkService"
                       Start="auto"
                       ErrorControl="normal"
                       Arguments="service --config &quot;[RESTOTMDATAROOT]config\runtime.json&quot;"
@@ -70,7 +77,7 @@
                        FailureActionsWhen="failedToStopOrReturnedError"
                        OnInstall="yes"
                        OnReinstall="yes"
-                       ServiceSid="restricted" />
+                       ServiceSid="unrestricted" />
         <util:ServiceConfig FirstFailureActionType="restart"
                             SecondFailureActionType="restart"
                             ThirdFailureActionType="restart"
@@ -117,9 +124,14 @@
       </Files>
     </ComponentGroup>
 
+    <!-- Dizin ozellikleri her zaman ters boluyle biter. "[INSTALLFOLDER]" acilinca
+         "C:\Program Files\RESTOTM\" olur ve Windows argüman ayristiricisi sondaki
+         \" ikilisini kacirilmis tirnak sayip bir sonraki bayragi yutar. Ters boluyu
+         ikileyerek yaziyoruz: \\" = gercek ters bolu + kapanis tirnagi. Rust tarafi
+         sondaki ayraci zaten kirpiyor. -->
     <CustomAction Id="ProvisionRestOtmHost"
                   FileRef="InstallerBootstrapExe"
-                  ExeCommand="provision --install-root &quot;[INSTALLFOLDER]&quot; --program-data-root &quot;[RESTOTMDATAROOT]&quot; --license-server-url &quot;$(var.LicenseServerUrl)&quot; --product-version &quot;$(var.ProductVersion)&quot; --postgres-port 55432 --api-port 4100 --admin-port 3100 --waiter-port 3200 --menu-port 3300 --print-port 4300 --gateway-port 8787"
+                  ExeCommand="provision --install-root &quot;[INSTALLFOLDER]\&quot; --program-data-root &quot;[RESTOTMDATAROOT]\&quot; --license-server-url &quot;$(var.LicenseServerUrl)&quot; --product-version &quot;$(var.ProductVersion)&quot; --postgres-port 55432 --api-port 4100 --admin-port 3100 --waiter-port 3200 --menu-port 3300 --print-port 4300 --gateway-port 8787"
                   Execute="deferred"
                   Impersonate="no"
                   Return="check"

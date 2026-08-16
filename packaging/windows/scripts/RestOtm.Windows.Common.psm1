@@ -468,12 +468,16 @@ function Set-RestOtmDirectoryAcl {
     $serviceSid = ([Security.Principal.NTAccount]'NT SERVICE\RESTOTMRuntime').Translate(
         [Security.Principal.SecurityIdentifier]
     ).Value
+    # S-1-5-20 NetworkService: servisin calistigi hesap. PostgreSQL yonetici
+    # haklariyla calismayi reddettigi icin servis LocalSystem olamaz; kisitli
+    # servis SID'i ise oldugu gibi korunur.
     & icacls.exe $Path '/grant:r' `
         '*S-1-5-18:(OI)(CI)F' `
         '*S-1-5-32-544:(OI)(CI)F' `
+        '*S-1-5-20:(OI)(CI)F' `
         "*$serviceSid`:(OI)(CI)F" | Out-Null
     if ($LASTEXITCODE -ne 0) {
-        throw "SYSTEM/Administrators/restricted-service ACL uygulanamadi: $Path"
+        throw "SYSTEM/Administrators/NetworkService/restricted-service ACL uygulanamadi: $Path"
     }
 }
 

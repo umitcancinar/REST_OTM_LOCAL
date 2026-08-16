@@ -128,6 +128,11 @@ fn provision(request: &BootstrapRequest) -> Result<()> {
     let config_root = request.program_data_root.join("config");
     let data_root = request.program_data_root.join("data");
     let log_root = request.program_data_root.join("logs");
+    // Servis kisitli SID ile calistigi icin hesabin kendi TEMP klasorune yazamaz
+    // (Prisma migration "EPERM: mkdir ...NETWOR~1\AppData\Local\Temp" ile duser).
+    // Cocuk sureclere kendi denetimimizdeki, ayni ACL politikasina tabi bir
+    // gecici klasor veriyoruz.
+    let temp_root = request.program_data_root.join("temp");
     let runtime_root = request.program_data_root.join("runtime");
     let backup_root = request.program_data_root.join("backups");
     let backup_replica_root = request.program_data_root.join("backup-replica");
@@ -171,6 +176,7 @@ fn provision(request: &BootstrapRequest) -> Result<()> {
         data_root.join("print-agent"),
         log_root.clone(),
         runtime_root.clone(),
+        temp_root.clone(),
         backup_root.clone(),
         backup_replica_root.clone(),
     ] {
@@ -191,6 +197,11 @@ fn provision(request: &BootstrapRequest) -> Result<()> {
         &config_root,
         &database_password,
     )?;
+    // initdb kendi olusturdugu dizin ve dosyalara ust dizinden miras alinan ACE
+    // birakir; politika ise her yolda korumali (miras edilmemis) DACL bekler.
+    // Kume kurulduktan sonra bu alt agaci yeniden sertlestiriyoruz, yoksa
+    // asagidaki verify_restrictive_tree adimi hakli olarak reddediyor.
+    harden_tree(&data_root.join("postgres"))?;
     atomic_write_new(&secret_path, &secret_bytes)?;
     rollback.files.push(secret_path.clone());
     apply_restrictive_acl(&secret_path, false)?;
@@ -262,8 +273,13 @@ fn configure_service_contract() -> Result<()> {
             "restart/15000/restart/30000/restart/60000",
         ],
         vec!["failureflag", SERVICE_NAME, "1"],
-        vec!["sidtype", SERVICE_NAME, "restricted"],
-        vec!["preshutdown", SERVICE_NAME, "120000"],
+        // Servis kendi SID'ini almaya devam eder (ACL politikamiz buna dayanir),
+        // ancak "restricted" (write-restricted) token calisma zamaniyla uyumsuz:
+        // Prisma sema motoru "spawn EPERM" ile baslatilamiyor ve gecici klasore
+        // yazilamiyor. Yalitim yine de guclu: servis yonetici olmayan bir hesapla
+        // calisir ve tum agac SYSTEM/Administrators/NetworkService/servis SID
+        // disinda kimseye acik degildir.
+        vec!["sidtype", SERVICE_NAME, "unrestricted"],
     ] {
         let status = Command::new(&sc)
             .args(&arguments)
@@ -278,6 +294,61 @@ fn configure_service_contract() -> Result<()> {
                 arguments[0]
             )));
         }
+    }
+    set_preshutdown_timeout(PRESHUTDOWN_TIMEOUT_MS)
+}
+
+/// PostgreSQL'in duzgun kapanabilmesi icin gereken preshutdown suresi.
+const PRESHUTDOWN_TIMEOUT_MS: u32 = 120_000;
+
+/// sc.exe'nin `preshutdown` diye bir komutu yoktur; boyle bir cagri
+/// "Unrecognized command" (1639) ile doner. SCM bu degeri servisin kendi
+/// registry anahtarindaki PreshutdownTimeout DWORD'unden okur ve kurulum
+/// dogrulamasi da (Test-RestOtmInstallation.ps1) ayni degeri denetler.
+fn set_preshutdown_timeout(milliseconds: u32) -> Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+    use windows_sys::Win32::System::Registry::{
+        RegCloseKey, RegOpenKeyExW, RegSetValueExW, HKEY_LOCAL_MACHINE, KEY_SET_VALUE, REG_DWORD,
+    };
+
+    let subkey: Vec<u16> =
+        std::ffi::OsString::from(format!("SYSTEM\\CurrentControlSet\\Services\\{SERVICE_NAME}"))
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+    let value_name: Vec<u16> = std::ffi::OsString::from("PreshutdownTimeout")
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+
+    let mut key = std::ptr::null_mut();
+    let opened =
+        unsafe { RegOpenKeyExW(HKEY_LOCAL_MACHINE, subkey.as_ptr(), 0, KEY_SET_VALUE, &mut key) };
+    if opened != ERROR_SUCCESS {
+        return Err(HostError::InvalidBootstrap(format!(
+            "RESTOTM service registry key is unavailable: {opened}"
+        )));
+    }
+
+    let bytes = milliseconds.to_le_bytes();
+    let written = unsafe {
+        RegSetValueExW(
+            key,
+            value_name.as_ptr(),
+            0,
+            REG_DWORD,
+            bytes.as_ptr(),
+            bytes.len() as u32,
+        )
+    };
+    unsafe {
+        RegCloseKey(key);
+    }
+    if written != ERROR_SUCCESS {
+        return Err(HostError::InvalidBootstrap(format!(
+            "Windows service preshutdown timeout could not be set: {written}"
+        )));
     }
     Ok(())
 }
@@ -498,11 +569,16 @@ fn service_sid_string() -> Result<String> {
     result
 }
 
+/// Agac sira disi kullanicilar icin kapalidir. NS (NetworkService) servisin
+/// calistigi hesaptir: PostgreSQL yonetici haklarina sahip bir kimlikle
+/// calistirilmayi reddettigi icin servis LocalSystem olamaz. Kisitli servis
+/// SID'i (ServiceSidType=3) korunur; yazma denetimi hem hesabi hem servis
+/// SID'ini gerektirdiginden ikisi de listede kalmalidir.
 fn expected_sddl(is_directory: bool) -> Result<String> {
     let service_sid = service_sid_string()?;
     let flags = if is_directory { "OICI" } else { "" };
     Ok(format!(
-        "D:P(A;{flags};FA;;;SY)(A;{flags};FA;;;BA)(A;{flags};FA;;;{service_sid})"
+        "D:P(A;{flags};FA;;;SY)(A;{flags};FA;;;BA)(A;{flags};FA;;;NS)(A;{flags};FA;;;{service_sid})"
     ))
 }
 

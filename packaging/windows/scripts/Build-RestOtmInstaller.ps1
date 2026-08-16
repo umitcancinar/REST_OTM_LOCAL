@@ -144,6 +144,28 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $bundlePath -PathType L
     throw 'WiX Burn bundle derlemesi basarisiz.'
 }
 
+# Burn bundle'i dogrudan imzalamak olmaz: imza PE'ye eklenince motorun ekli
+# konteyneri (WixAttachedContainer) bulamamasina yol acar ve kurulum calisma
+# aninda MSI'i cikaramayip kullaniciya dosya sorar. Desteklenen yol motoru
+# ayirip once onu imzalamak, geri takmak ve en son bundle'i imzalamaktir.
+$enginePath = Join-Path $versionOutput 'burn-engine.exe'
+$reattachedPath = "$bundlePath.reattached"
+
+& $wix.Source burn detach $bundlePath -engine $enginePath
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $enginePath -PathType Leaf)) {
+    throw 'Burn motoru ayrilamadi.'
+}
+
+& $signTool.Source sign /sha1 $thumbprint /fd SHA256 /tr $timestampUri.AbsoluteUri /td SHA256 $enginePath
+if ($LASTEXITCODE -ne 0) { throw 'Burn motoru Authenticode imzalanamadi.' }
+
+& $wix.Source burn reattach $bundlePath -engine $enginePath -o $reattachedPath
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $reattachedPath -PathType Leaf)) {
+    throw 'Imzali Burn motoru bundle icine geri takilamadi.'
+}
+Move-Item -LiteralPath $reattachedPath -Destination $bundlePath -Force
+Remove-Item -LiteralPath $enginePath -Force
+
 & $signTool.Source sign /sha1 $thumbprint /fd SHA256 /tr $timestampUri.AbsoluteUri /td SHA256 $bundlePath
 if ($LASTEXITCODE -ne 0) { throw 'Burn bundle Authenticode imzalanamadi.' }
 

@@ -76,10 +76,15 @@ if ($PSCmdlet.ShouldProcess($ProgramDataRoot, 'RESTOTM host yapilandirmasini uyg
     if ($LASTEXITCODE -ne 0) { throw 'Servis failure recovery yapilandirilamadi.' }
     & sc.exe failureflag RESTOTMRuntime 1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Servis non-crash failure recovery etkinlestirilemedi.' }
-    & sc.exe sidtype RESTOTMRuntime restricted | Out-Null
+    # Servis kendi SID'ini alir (ACL politikasi buna dayanir); write-restricted
+    # token ise calisma zamaniyla uyumsuzdur (Prisma sema motoru spawn EPERM).
+    & sc.exe sidtype RESTOTMRuntime unrestricted | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Servis restricted SID modu uygulanamadi.' }
-    & sc.exe preshutdown RESTOTMRuntime 120000 | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Servis guvenli PostgreSQL kapanis suresi uygulanamadi.' }
+    # sc.exe'nin preshutdown komutu yoktur; SCM bu sureyi servisin registry
+    # anahtarindaki PreshutdownTimeout DWORD'undan okur.
+    Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\RESTOTMRuntime' `
+        -Name 'PreshutdownTimeout' -Value 120000 -Type DWord
+    if (-not $?) { throw 'Servis guvenli PostgreSQL kapanis suresi uygulanamadi.' }
 
     $firewallContracts = @(
         [ordered]@{

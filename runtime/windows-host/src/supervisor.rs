@@ -6,13 +6,21 @@ use crate::platform::ManagedChild;
 use crate::secrets::SecretProvider;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
+
+/// Cocuk sureclerin stderr'i daha once /dev/null'a gidiyordu; bir cocuk
+/// baslamadiginda (ornegin PostgreSQL) sebebi hicbir yerde gorunmuyordu.
+/// Supervisor'in log dizinini burada tutup her cocugun hata ciktisini kendi
+/// dosyasina yaziyoruz. Spawn noktalarina kadar parametre tasimak yerine tek
+/// sefer set edilen bir deger yeterli: surec basina tek bir supervisor calisir.
+static CHILD_LOG_DIRECTORY: OnceLock<PathBuf> = OnceLock::new();
 
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 const ACTIVE_PROBE_INTERVAL: Duration = Duration::from_secs(5);
@@ -47,6 +55,7 @@ impl RunningSupervisor {
         // stopped and rolled back without losing a simultaneous external stop.
         let stop = Arc::new(AtomicBool::new(false));
         config.validate()?;
+        let _ = CHILD_LOG_DIRECTORY.set(config.log_directory.clone());
         let health = HealthRegistry::new(
             config.health_file.clone(),
             config.installation_id.clone(),
@@ -434,6 +443,32 @@ fn worker_loop(
     }
 }
 
+/// ProgramData altindaki gecici klasor: `<program-data>\temp`. Log dizini
+/// `<program-data>\logs` oldugu icin ondan tureniyor.
+fn child_temp_directory() -> Option<PathBuf> {
+    let directory = CHILD_LOG_DIRECTORY.get()?.parent()?.join("temp");
+    std::fs::create_dir_all(&directory).ok()?;
+    Some(directory)
+}
+
+/// Cocugun kendi hata ciktisi icin ekleme modunda bir dosya acar. Dosya
+/// acilamazsa eski davranisa (sessiz) doneriz; teshis kolayligi ugruna cocugun
+/// baslamasini engellemek dogru olmaz.
+fn child_stderr(name: &str) -> Stdio {
+    let Some(directory) = CHILD_LOG_DIRECTORY.get() else {
+        return Stdio::null();
+    };
+    let safe_name: String = name
+        .chars()
+        .map(|character| if character.is_ascii_alphanumeric() { character } else { '-' })
+        .collect();
+    let path = directory.join(format!("child-{safe_name}.log"));
+    match std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        Ok(file) => Stdio::from(file),
+        Err(_) => Stdio::null(),
+    }
+}
+
 fn spawn_child(spec: &ChildSpec, secrets: &dyn SecretProvider) -> Result<ManagedChild> {
     if !spec.executable.is_file() || !spec.working_directory.is_dir() {
         return Err(HostError::ChildProcess {
@@ -448,12 +483,39 @@ fn spawn_child(spec: &ChildSpec, secrets: &dyn SecretProvider) -> Result<Managed
         .env_clear()
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(child_stderr(&spec.name));
 
-    for inherited in ["SystemRoot", "WINDIR", "TEMP", "TMP"] {
+    for inherited in ["SystemRoot", "WINDIR"] {
         if let Some(value) = std::env::var_os(inherited) {
             command.env(inherited, value);
         }
+    }
+    // Servis kisitli SID ile calistigindan hesabin kendi TEMP klasorune yazamaz;
+    // orayi kullanan her cocuk "EPERM" ile duser. ProgramData altindaki, ayni
+    // ACL politikasina tabi kendi gecici klasorumuzu veriyoruz. Klasor
+    // provisioning sirasinda olusturulur; yine de garanti altina aliyoruz.
+    match child_temp_directory() {
+        Some(temp) => {
+            command.env("TEMP", &temp);
+            command.env("TMP", &temp);
+        }
+        None => {
+            for inherited in ["TEMP", "TMP"] {
+                if let Some(value) = std::env::var_os(inherited) {
+                    command.env(inherited, value);
+                }
+            }
+        }
+    }
+    // PATH'siz baslatilan surecte Windows C calisma zamani cokuyor: postgres.exe
+    // hicbir cikti uretmeden 0xC0000005 ile oluyor. Yalitimi korumak icin
+    // servisin tam PATH'i miras alinmaz, yalniz Windows sistem dizinleri verilir.
+    if let Some(system_root) = std::env::var_os("SystemRoot") {
+        let system_root = std::path::Path::new(&system_root);
+        let mut path = std::ffi::OsString::from(system_root.join("System32"));
+        path.push(";");
+        path.push(system_root);
+        command.env("PATH", path);
     }
     for (key, value) in &spec.environment {
         command.env(key, value);
@@ -481,9 +543,16 @@ fn spawn_child(spec: &ChildSpec, secrets: &dyn SecretProvider) -> Result<Managed
         let value = secrets.resolve(secret_reference)?;
         command.env(key, value.as_str());
     }
-    ManagedChild::spawn(&mut command).map_err(|cause| HostError::ChildProcess {
-        name: spec.name.clone(),
-        message: cause.to_string(),
+    // PostgreSQL sunucusu yonetici haklarina sahip bir kimlikle calistirilmayi
+    // reddeder; servis LocalSystem oldugu icin bu cocuk, yonetici grubu devre
+    // disi birakilmis kisitli bir token ile baslatilir. Diger cocuklarin boyle
+    // bir kisiti yok, onlar normal yoldan baslatilmaya devam eder.
+    let drop_administrator_rights = matches!(spec.shutdown, ShutdownSpec::Postgres { .. });
+    ManagedChild::spawn(&mut command, drop_administrator_rights).map_err(|cause| {
+        HostError::ChildProcess {
+            name: spec.name.clone(),
+            message: cause.to_string(),
+        }
     })
 }
 

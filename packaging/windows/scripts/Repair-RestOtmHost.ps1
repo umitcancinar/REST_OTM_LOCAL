@@ -84,10 +84,13 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Servis recovery contract onarilamadi.' }
     & sc.exe failureflag RESTOTMRuntime 1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Servis failure flag onarilamadi.' }
-    & sc.exe sidtype RESTOTMRuntime restricted | Out-Null
+    & sc.exe sidtype RESTOTMRuntime unrestricted | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Restricted service SID onarilamadi.' }
-    & sc.exe preshutdown RESTOTMRuntime 120000 | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Guvenli PostgreSQL kapanis suresi onarilamadi.' }
+    # sc.exe'nin preshutdown komutu yoktur; SCM bu sureyi servisin registry
+    # anahtarindaki PreshutdownTimeout DWORD'undan okur.
+    Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\RESTOTMRuntime' `
+        -Name 'PreshutdownTimeout' -Value 120000 -Type DWord
+    if (-not $?) { throw 'Guvenli PostgreSQL kapanis suresi onarilamadi.' }
 
     Get-NetFirewallRule -Group 'RESTOTM' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
     New-NetFirewallRule -DisplayName 'RESTOTM LAN Gateway (Private LocalSubnet)' -Group 'RESTOTM' -Direction Inbound -Action Allow -Enabled True -Profile Private -Protocol TCP -LocalPort 8787 -RemoteAddress LocalSubnet | Out-Null

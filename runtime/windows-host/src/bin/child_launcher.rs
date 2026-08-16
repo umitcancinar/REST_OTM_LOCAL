@@ -31,6 +31,22 @@ fn role_spec(file_name: &str) -> Option<RoleSpec> {
     }
 }
 
+/// `Path::canonicalize` Windows'ta `\\?\` onekli "verbatim" yol dondurur.
+/// Node bu bicimi ana modul yolu olarak kabul etmez: yolu ayristirirken koku
+/// "C:" sanip `EISDIR: illegal operation on a directory, lstat 'C:'` ile duser.
+/// Kurulum kokunun disina cikilmadigi denetimleri canonical yollar uzerinde
+/// yapmaya devam ediyoruz; oneki yalniz Node'a verilen degerden kaldiriyoruz.
+fn without_verbatim_prefix(path: &Path) -> PathBuf {
+    let text = path.as_os_str().to_string_lossy();
+    match text.strip_prefix(r"\\?\") {
+        Some(rest) => match rest.strip_prefix("UNC\\") {
+            Some(share) => PathBuf::from(format!(r"\\{share}")),
+            None => PathBuf::from(rest),
+        },
+        None => path.to_path_buf(),
+    }
+}
+
 fn canonical_file(path: &Path, label: &str) -> Result<PathBuf, String> {
     let canonical = path
         .canonicalize()
@@ -78,12 +94,12 @@ fn run() -> Result<i32, String> {
         if (!prisma.starts_with(&install_root)) || (!schema.starts_with(&install_root)) {
             return Err("migration dosyasi imzali kurulum kokunun disina cikiyor".into());
         }
-        let mut migration = Command::new(&node);
+        let mut migration = Command::new(without_verbatim_prefix(&node));
         migration
-            .arg(prisma)
+            .arg(without_verbatim_prefix(&prisma))
             .args(["migrate", "deploy", "--schema"])
-            .arg(schema)
-            .current_dir(&install_root)
+            .arg(without_verbatim_prefix(&schema))
+            .current_dir(without_verbatim_prefix(&install_root))
             .stdin(Stdio::null())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit());
@@ -96,10 +112,10 @@ fn run() -> Result<i32, String> {
         }
     }
 
-    let mut command = Command::new(node);
+    let mut command = Command::new(without_verbatim_prefix(&node));
     command
-        .arg(script)
-        .current_dir(component_dir)
+        .arg(without_verbatim_prefix(&script))
+        .current_dir(without_verbatim_prefix(component_dir))
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
