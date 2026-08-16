@@ -8,6 +8,13 @@ pub struct ManagedChild {
     job: windows_sys::Win32::Foundation::HANDLE,
 }
 
+// SAFETY: `job` is an opaque Windows kernel object handle (an integer-like
+// identifier), not a pointer into process memory. Handles are valid to use
+// and close from any thread, so it is safe to move `ManagedChild` across
+// threads even though `HANDLE` is FFI-typed as a raw pointer.
+#[cfg(windows)]
+unsafe impl Send for ManagedChild {}
+
 /// Replaces a durable state file without first creating a window where the
 /// destination does not exist. Windows' standard `rename` does not replace an
 /// existing file, so use the native write-through primitive there.
@@ -167,10 +174,10 @@ fn spawn_windows(command: &mut Command) -> Result<ManagedChild> {
 #[cfg(windows)]
 pub fn dpapi_unprotect(encrypted: &[u8]) -> Result<Vec<u8>> {
     use std::ptr::{copy_nonoverlapping, null_mut, write_bytes};
+    use windows_sys::Win32::Foundation::LocalFree;
     use windows_sys::Win32::Security::Cryptography::{
         CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
     };
-    use windows_sys::Win32::System::Memory::LocalFree;
 
     if encrypted.is_empty() || encrypted.len() > u32::MAX as usize {
         return Err(HostError::InvalidSecretStore(
@@ -226,11 +233,11 @@ pub fn dpapi_unprotect(encrypted: &[u8]) -> Result<Vec<u8>> {
 #[cfg(windows)]
 pub fn dpapi_protect_local_machine(clear: &[u8]) -> Result<Vec<u8>> {
     use std::ptr::{copy_nonoverlapping, null_mut, write_bytes};
+    use windows_sys::Win32::Foundation::LocalFree;
     use windows_sys::Win32::Security::Cryptography::{
         CryptProtectData, CRYPTPROTECT_LOCAL_MACHINE, CRYPTPROTECT_UI_FORBIDDEN,
         CRYPT_INTEGER_BLOB,
     };
-    use windows_sys::Win32::System::Memory::LocalFree;
 
     if clear.is_empty() || clear.len() > u32::MAX as usize {
         return Err(HostError::InvalidBootstrap(

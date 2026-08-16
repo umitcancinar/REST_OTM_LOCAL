@@ -67,9 +67,16 @@ if ($null -eq $wix) { $wix = Get-Command wix -ErrorAction SilentlyContinue }
 if ($null -eq $wix) {
     throw 'WiX Toolset v4 CLI bulunamadi. Global/CI arac zinciri sabitlenmeden installer uretilmez.'
 }
+# Product.wxs, WiX v5 ile gelen Files harvest elementini ve FirewallException
+# Grouping/RemotePortozniteliklerini kullanir; Bundle.wxs de v5+ adiyla
+# BootstrapperApplications uzantisini ister. Bu yuzden asgari surum v5'tir.
+# Derleme makinesini hazirlayan Bootstrap script'i surum sabitlemeden en guncel
+# wix'i kurar, dolayisiyla ust sinir sabitlenmez.
 $wixVersionText = (& $wix.Source --version | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $wixVersionText -notmatch '^4\.') {
-    throw "WiX Toolset v4 gerekiyor. Bulunan: $wixVersionText"
+$wixMajor = 0
+if ($wixVersionText -match '^(\d+)\.') { $wixMajor = [int]$Matches[1] }
+if ($LASTEXITCODE -ne 0 -or $wixMajor -lt 5) {
+    throw "WiX Toolset v5 veya ustu gerekiyor. Bulunan: $wixVersionText"
 }
 
 $signTool = Get-Command signtool.exe -ErrorAction SilentlyContinue
@@ -77,9 +84,14 @@ if ($null -eq $signTool) {
     throw 'Windows SDK signtool.exe bulunamadi; imzasiz MSI/EXE uretilmez.'
 }
 
+# RFC 3161 zaman damgasi token'i TSA tarafindan imzalanir ve signtool token ile
+# TSA sertifika zincirini dogrular; guvence tasima katmanindan degil imzadan
+# gelir. Bu yuzden DigiCert, Sectigo ve GlobalSign resmi uclarini http olarak
+# yayinlar ve signtool https uclari kabul etmez. Damganin gecerliligi imzalama
+# sonrasi Authenticode dogrulamasiyla ayrica denetlenir; orasi gevsetilmedi.
 $timestampUri = [Uri]$TimestampUrl
-if ($timestampUri.Scheme -ne 'https') {
-    throw 'Timestamp sunucusu HTTPS olmali.'
+if (-not $timestampUri.IsAbsoluteUri -or $timestampUri.Scheme -notin @('http', 'https')) {
+    throw "Timestamp sunucusu mutlak http/https adresi olmali. Verilen: $TimestampUrl"
 }
 
 $thumbprint = $CertificateThumbprint.Replace(' ', '').ToUpperInvariant()

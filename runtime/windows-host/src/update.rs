@@ -1093,11 +1093,11 @@ fn version_in_range(version: &str, minimum: &str, maximum: &str) -> bool {
 
 fn compare_version(left: &str, right: &str) -> Option<i8> {
     if !is_safe_version(left) || !is_safe_version(right) { return None; }
-    let parse = |value: &str| -> Option<([u64; 3], Vec<&str>)> {
+    fn parse(value: &str) -> Option<([u64; 3], Vec<&str>)> {
         let (core, pre) = value.split_once('-').map_or((value, ""), |parts| parts);
         let numbers: Vec<u64> = core.split('.').map(str::parse).collect::<std::result::Result<_, _>>().ok()?;
         Some(([numbers[0], numbers[1], numbers[2]], if pre.is_empty() { vec![] } else { pre.split('.').collect() }))
-    };
+    }
     let (a, apre) = parse(left)?;
     let (b, bpre) = parse(right)?;
     for index in 0..3 {

@@ -12,6 +12,11 @@ const nextConfig: NextConfig = {
   // local artifact'i build edilirken MENU_BASE_PATH=/menu acikca verilmelidir.
   basePath: menuBasePath,
   outputFileTracingRoot: path.resolve(__dirname, '../..'),
+  // Windows payload'i kaynak haritasi tasiyan dosya kabul etmez.
+  productionBrowserSourceMaps: false,
+  experimental: {
+    serverSourceMaps: false,
+  },
   turbopack: {
     root: path.resolve(__dirname, '../..'),
   },

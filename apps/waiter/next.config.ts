@@ -8,6 +8,11 @@ const nextConfig: NextConfig = {
   // sabit contract ile uretilir.
   basePath: '/garson',
   outputFileTracingRoot: path.resolve(__dirname, '../..'),
+  // Windows payload'i kaynak haritasi tasiyan dosya kabul etmez.
+  productionBrowserSourceMaps: false,
+  experimental: {
+    serverSourceMaps: false,
+  },
   turbopack: {
     root: path.resolve(__dirname, "../.."),
   },

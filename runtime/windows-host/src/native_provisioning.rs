@@ -26,7 +26,7 @@ use windows_sys::Win32::Security::Cryptography::{
 use windows_sys::Win32::Storage::FileSystem::{
     MoveFileExW, FILE_ATTRIBUTE_REPARSE_POINT, MOVEFILE_WRITE_THROUGH,
 };
-use windows_sys::Win32::System::Memory::LocalFree;
+use windows_sys::Win32::Foundation::LocalFree;
 use zeroize::{Zeroize, Zeroizing};
 
 const DACL_SECURITY_INFORMATION: u32 = 0x0000_0004;
@@ -883,7 +883,7 @@ fn build_config(
                 executable: install.join("postgres/bin/postgres.exe"),
                 working_directory: install.join("postgres/bin"),
                 arguments: vec!["-D".into(), data_root.join("postgres").display().to_string(), "-p".into(), request.postgres_port.to_string(), "-h".into(), "127.0.0.1".into()],
-                environment: empty.clone(), file_environment: empty.clone(), secret_environment: empty.clone(), depends_on: vec![], essential: true,
+                environment: empty.clone(), file_environment: BTreeMap::new(), secret_environment: empty.clone(), depends_on: vec![], essential: true,
                 shutdown: ShutdownSpec::Postgres {
                     pg_ctl_path: install.join("postgres/bin/pg_ctl.exe"),
                     data_directory: data_root.join("postgres"),
@@ -924,7 +924,7 @@ fn build_config(
                     ("NODE_ENV".into(), "production".into()),
                     ("PRINT_AGENT_WS_URL".into(), format!("http://127.0.0.1:{}", request.api_port)),
                     ("PRINT_AGENT_DATA_DIR".into(), data_root.join("print-agent").display().to_string()),
-                ]), file_environment: empty.clone(), secret_environment: BTreeMap::from([("PRINT_AGENT_SECRET".into(), "printAgentSecret".into())]),
+                ]), file_environment: BTreeMap::new(), secret_environment: BTreeMap::from([("PRINT_AGENT_SECRET".into(), "printAgentSecret".into())]),
                 depends_on: vec!["local-api".into()], essential: false, shutdown: ShutdownSpec::Terminate { grace_ms: 5_000 },
             },
             ChildSpec {
@@ -938,7 +938,7 @@ fn build_config(
                     ("GATEWAY_ADMIN_TARGET".into(), format!("http://127.0.0.1:{}", request.admin_port)),
                     ("GATEWAY_WAITER_TARGET".into(), format!("http://127.0.0.1:{}", request.waiter_port)),
                     ("GATEWAY_MENU_TARGET".into(), format!("http://127.0.0.1:{}", request.menu_port)),
-                ]), file_environment: empty, secret_environment: BTreeMap::from([("GATEWAY_CONTROL_SECRET".into(), "gatewayControlSecret".into())]),
+                ]), file_environment: BTreeMap::new(), secret_environment: BTreeMap::from([("GATEWAY_CONTROL_SECRET".into(), "gatewayControlSecret".into())]),
                 depends_on: vec!["local-api".into(), "admin-ui".into(), "waiter-ui".into(), "menu-ui".into()], essential: true, shutdown: ShutdownSpec::Terminate { grace_ms: 5_000 },
             },
         ],

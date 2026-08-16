@@ -13,14 +13,14 @@ $contract = Assert-RestOtmInstallerContract -ContractPath $InstallerContractPath
 if (-not (Test-Path -LiteralPath $HostConfigPath -PathType Leaf)) {
     throw "Rust host config example bulunamadi: $HostConfigPath"
 }
-$host = Get-Content -LiteralPath $HostConfigPath -Raw | ConvertFrom-Json
-if ($host.schema_version -ne $contract.schema_version -or
-    ($host.network | ConvertTo-Json -Depth 6 -Compress) -ne
+$rusthost = Get-Content -LiteralPath $HostConfigPath -Raw | ConvertFrom-Json
+if ($rusthost.schema_version -ne $contract.schema_version -or
+    ($rusthost.network | ConvertTo-Json -Depth 6 -Compress) -ne
     ($contract.network | ConvertTo-Json -Depth 6 -Compress)) {
     throw 'Installer ve Rust host network/schema contractlari drift etti.'
 }
 
-$hostTopology = @($host.children | ForEach-Object {
+$hostTopology = @($rusthost.children | ForEach-Object {
     [ordered]@{ name = $_.name; depends_on = @($_.depends_on) }
 })
 $installerTopology = @($contract.children | ForEach-Object {
@@ -38,6 +38,6 @@ if ($contract.native_bootstrap.production_ready -ne $false) {
 [pscustomobject]@{
     Passed = $true
     CanonicalSchema = $contract.canonical_runtime_schema
-    ChildCount = $host.children.Count
+    ChildCount = $rusthost.children.Count
     ProductionReady = $contract.native_bootstrap.production_ready
 }
